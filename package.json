@@ -6,20 +6,26 @@
   "main": "dist/index.js",
   "license": "PolyForm-Noncommercial-1.0.0",
   "files": ["dist", "LICENSE", "README.md", "docs"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/awarecorp/pinta-gemini.git"
+  },
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/index.js",
+    "test": "vitest run",
     "install-hooks": "tsx tools/install-hooks.ts",
     "uninstall-hooks": "tsx tools/install-hooks.ts --uninstall",
+    "doctor": "tsx tools/doctor.ts",
     "verify": "tsx tools/hook-verify.ts",
     "e2e": "tsx tools/e2e-hooks.ts",
     "e2e:config": "tsx tools/e2e-from-config.ts",
-    "demo": "tsx tools/demo-trace.ts",
-    "test": "tsx tools/hook-verify.ts selftest"
+    "demo": "tsx tools/demo-trace.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "esbuild": "^0.24.0",
     "tsx": "^4.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
   }
 }
