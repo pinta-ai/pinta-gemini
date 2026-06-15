@@ -1,0 +1,25 @@
+{
+  "name": "@pinta-ai/pinta-gemini",
+  "version": "0.1.0",
+  "description": "Unified OTLP forwarder + guard adapter for Gemini CLI and Antigravity (agy v1.0.x / 2.0) hooks",
+  "type": "module",
+  "main": "dist/index.js",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "files": ["dist", "LICENSE", "README.md", "docs"],
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/index.js",
+    "install-hooks": "tsx tools/install-hooks.ts",
+    "uninstall-hooks": "tsx tools/install-hooks.ts --uninstall",
+    "verify": "tsx tools/hook-verify.ts",
+    "e2e": "tsx tools/e2e-hooks.ts",
+    "e2e:config": "tsx tools/e2e-from-config.ts",
+    "demo": "tsx tools/demo-trace.ts",
+    "test": "tsx tools/hook-verify.ts selftest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}

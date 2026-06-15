@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.demo-home/
+verification-report.md
+*.pinta-bak
+.DS_Store
+*.log
