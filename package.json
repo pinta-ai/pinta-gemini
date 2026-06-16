@@ -1,11 +1,16 @@
 {
   "name": "@pinta-ai/pinta-gemini",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unified OTLP forwarder + guard adapter for Gemini CLI and Antigravity (agy v1.0.x / 2.0) hooks",
   "type": "module",
   "main": "dist/index.js",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "files": ["dist", "LICENSE", "README.md", "docs"],
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "docs"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/pinta-ai/pinta-gemini.git"
