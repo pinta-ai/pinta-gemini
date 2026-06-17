@@ -72,7 +72,7 @@ function installGemini(home: string, dryRun: boolean, uninstall: boolean): void 
     } else console.log(`nothing to remove (gemini ext): ${dir}`);
     return;
   }
-  const manifest = { name: EXT_NAME, version: "0.2.0", description: "Pinta OTLP forwarder + guard (verification)" };
+  const manifest = { name: EXT_NAME, version: "0.2.1", description: "Pinta OTLP forwarder + guard (verification)" };
   const hooks: Record<string, unknown> = {};
   for (const ev of GEMINI_EVENTS) {
     const def: any = { hooks: [{ name: HOOK_NAME, type: "command", command: command("gemini", ev), timeout: 60000 }] };

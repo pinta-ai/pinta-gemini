@@ -12,7 +12,7 @@ import { identity } from "./types.js";
 import { redact, truncate } from "./redact.js";
 import type { GuardResult } from "./guard.js";
 
-export const PLUGIN_VERSION = "0.2.0";
+export const PLUGIN_VERSION = "0.2.1";
 
 export interface OtlpAttribute {
   key: string;
