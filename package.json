@@ -1,6 +1,6 @@
 {
   "name": "@pinta-ai/pinta-gemini",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Unified OTLP forwarder + guard adapter for Gemini CLI and Antigravity (agy v1.0.x / 2.0) hooks",
   "type": "module",
   "main": "dist/index.js",
@@ -16,6 +16,7 @@
     "url": "git+https://github.com/pinta-ai/pinta-gemini.git"
   },
   "scripts": {
+    "bump": "node scripts/bump.mjs",
     "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/index.js",
     "test": "vitest run",
     "install-hooks": "tsx tools/install-hooks.ts",

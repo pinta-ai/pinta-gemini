@@ -21,7 +21,7 @@ const TIMEOUT_MS = 50;
 // Self-identify to the manager's guard route so it can attribute calls to this
 // adaptor (the route parses `pinta-*/<version>` out of the User-Agent). Keep the
 // version in sync with package.json.
-const GUARD_UA = 'pinta-gemini/0.4.0';
+const GUARD_UA = 'pinta-gemini/0.4.1';
 
 /**
  * The shell command text out of a tool_input, regardless of host field name:
