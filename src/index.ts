@@ -14,7 +14,7 @@ import { parseInvocation, antigravityProduct } from "./core/agent.js";
 import { normalize } from "./core/normalize.js";
 import { gateEvent, isGemini, isSkippedHook } from "./core/types.js";
 import type { Agent, Canonical, DecisionOutput, RawEvent } from "./core/types.js";
-import { evaluateGuard } from "./core/guard.js";
+import { evaluateGuard, shellCommandText } from "./core/guard.js";
 import type { GuardResult } from "./core/guard.js";
 import { Transport } from "./core/transport.js";
 import { TraceManager } from "./core/trace.js";
@@ -56,7 +56,9 @@ async function main(): Promise<void> {
 
       // Guard only on the host's tool-gate event.
       if (c.hook === gateEvent(agent)) {
-        const rawToolInput = typeof c.tool_input === "string" ? c.tool_input : JSON.stringify(c.tool_input ?? null);
+        const rawToolInput =
+          shellCommandText(c.tool_input) ??
+          (typeof c.tool_input === "string" ? c.tool_input : JSON.stringify(c.tool_input ?? null));
         guard = await evaluateGuard(
           { spanId: sessionId, toolName: c.tool_name, toolInput: c.tool_input, rawTextFields: { toolInput: rawToolInput } },
           config.guardEndpoint,

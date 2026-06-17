@@ -5,8 +5,24 @@ import { parseInvocation, antigravityProduct } from "../src/core/agent";
 import { gateEvent, identity, isSkippedHook } from "../src/core/types";
 import { buildOtlpPayload, ulidToTraceId } from "../src/core/otlp";
 import type { GuardResult } from "../src/core/guard";
+import { shellCommandText } from "../src/core/guard";
 
 const ULID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"; // 26 Crockford chars
+
+describe("shellCommandText", () => {
+  it("reads Gemini CLI's `command`", () => {
+    expect(shellCommandText({ command: "npm i evil@1.0.0" })).toBe("npm i evil@1.0.0");
+  });
+  it("reads Antigravity's PascalCase `CommandLine`", () => {
+    expect(shellCommandText({ CommandLine: "npm i evil@1.0.0" })).toBe("npm i evil@1.0.0");
+  });
+  it("returns undefined for non-shell shapes (caller keeps JSON fallback)", () => {
+    expect(shellCommandText({ file_path: "/a", content: "x" })).toBeUndefined();
+    expect(shellCommandText(undefined)).toBeUndefined();
+    expect(shellCommandText("already a string")).toBeUndefined();
+    expect(shellCommandText({ command: 123 })).toBeUndefined();
+  });
+});
 
 describe("normalize", () => {
   it("gemini: snake_case → canonical", () => {

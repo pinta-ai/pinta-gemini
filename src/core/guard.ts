@@ -18,6 +18,23 @@ export interface GuardResult {
 
 const TIMEOUT_MS = 50;
 
+/**
+ * The shell command text out of a tool_input, regardless of host field name:
+ * Gemini CLI's run_shell_command uses `command`, Antigravity's run_command uses
+ * PascalCase `CommandLine`. The manager's guard scans rawTextFields.toolInput as
+ * its shell-command fallback (the package extractor reads toolInput.command or
+ * rawTextFields.toolInput) and cannot parse a command out of a JSON-stringified
+ * object — so for Antigravity we must hand it the plain command string, else the
+ * package guard silently fails open. Returns undefined for non-shell shapes so
+ * the caller keeps its JSON-stringify fallback.
+ */
+export function shellCommandText(toolInput: unknown): string | undefined {
+  if (!toolInput || typeof toolInput !== 'object' || Array.isArray(toolInput)) return undefined;
+  const o = toolInput as Record<string, unknown>;
+  const v = o['command'] ?? o['CommandLine'];
+  return typeof v === 'string' ? v : undefined;
+}
+
 function sleep(ms: number): Promise<never> {
   return new Promise((_, reject) =>
     setTimeout(() => {
