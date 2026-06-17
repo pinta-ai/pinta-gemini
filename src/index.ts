@@ -60,6 +60,7 @@ async function main(): Promise<void> {
         guard = await evaluateGuard(
           { spanId: sessionId, toolName: c.tool_name, toolInput: c.tool_input, rawTextFields: { toolInput: rawToolInput } },
           config.guardEndpoint,
+          config.headers['x-pinta-relay-token'],
         );
       }
 

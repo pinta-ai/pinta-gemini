@@ -51,7 +51,10 @@ function resolveHeaders(): Record<string, string> {
 
 export function loadConfig(): PintaConfig {
   const pluginData = process.env.GEMINI_PLUGIN_DATA || path.join(geminiHome(), "pinta-gemini-data");
-  // guard.ts reads PINTA_RELAY_TOKEN; mirror the api key into it if only namespaced var is set.
+  // guard now takes its relay token from config.headers['x-pinta-relay-token']
+  // (same source as the trace transport — GEMINI_PLUGIN_OPTION_HEADERS), so the
+  // two no longer diverge. This bootstrap stays only as a back-compat fallback
+  // for the bare-token enrollment form (GEMINI_PLUGIN_OPTION_API_KEY).
   if (!process.env.PINTA_RELAY_TOKEN && process.env.GEMINI_PLUGIN_OPTION_API_KEY) {
     process.env.PINTA_RELAY_TOKEN = process.env.GEMINI_PLUGIN_OPTION_API_KEY;
   }

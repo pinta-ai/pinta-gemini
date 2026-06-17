@@ -31,6 +31,11 @@ function sleep(ms: number): Promise<never> {
 export async function evaluateGuard(
   input: GuardInput,
   endpoint: string | undefined,
+  // Relay token to authenticate the guard call. Pass the SAME token the trace
+  // transport uses (config.headers['x-pinta-relay-token'], parsed from
+  // GEMINI_PLUGIN_OPTION_HEADERS) so trace and guard share one env source.
+  // Falls back to PINTA_RELAY_TOKEN for back-compat with older enrollments.
+  relayToken?: string,
 ): Promise<GuardResult | null> {
   if (!endpoint) return null;
   if (process.env.PINTA_GUARD_DISABLED === '1') return null;
@@ -41,7 +46,7 @@ export async function evaluateGuard(
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-pinta-relay-token': process.env.PINTA_RELAY_TOKEN ?? '',
+          'x-pinta-relay-token': relayToken ?? process.env.PINTA_RELAY_TOKEN ?? '',
         },
         body: JSON.stringify({ input }),
       }),
