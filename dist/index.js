@@ -498,15 +498,17 @@ var require_transport = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.MemoryTransport = exports.DiskTransport = void 0;
-    exports.parseHeadersEnv = parseHeadersEnv;
+    exports.parseHeadersEnv = parseHeadersEnv2;
     exports.envOptionsResolver = envOptionsResolver;
     exports.postOtlp = postOtlp;
     var retry_queue_js_1 = require_retry_queue();
     var otlp_js_1 = require_otlp();
     var TIMEOUT_MS2 = 5e3;
-    function parseHeadersEnv(raw) {
+    function parseHeadersEnv2(raw) {
       if (!raw)
         return {};
+      if (typeof raw === "object")
+        return { ...raw };
       const out = {};
       for (const pair of raw.split(",")) {
         const [k, ...rest] = pair.split("=");
@@ -528,7 +530,7 @@ var require_transport = __commonJS({
         return null;
       return {
         endpoint,
-        headers: parseHeadersEnv(process.env.OTEL_EXPORTER_OTLP_HEADERS)
+        headers: parseHeadersEnv2(process.env.OTEL_EXPORTER_OTLP_HEADERS)
       };
     }
     async function postOtlp(payload, opts, logPrefix) {
@@ -641,12 +643,12 @@ var require_trace = __commonJS({
     };
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.TraceManager = void 0;
-    exports.generateUlid = generateUlid2;
+    exports.generateUlid = generateUlid;
     var fs_1 = __importDefault(__require("fs"));
     var path_1 = __importDefault(__require("path"));
     var crypto_1 = __importDefault(__require("crypto"));
     var CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-    function generateUlid2() {
+    function generateUlid() {
       const now = Date.now();
       let ts = "";
       let t = now;
@@ -670,7 +672,7 @@ var require_trace = __commonJS({
       }
       /** Generate and persist a fresh trace id (e.g. on UserPromptSubmit). */
       newTrace() {
-        const traceId = generateUlid2();
+        const traceId = generateUlid();
         this.save(traceId);
         return traceId;
       }
@@ -694,6 +696,88 @@ var require_trace = __commonJS({
   }
 });
 
+// ../pinta-core/dist/session-trace.js
+var require_session_trace = __commonJS({
+  "../pinta-core/dist/session-trace.js"(exports) {
+    "use strict";
+    var __importDefault = exports && exports.__importDefault || function(mod) {
+      return mod && mod.__esModule ? mod : { "default": mod };
+    };
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.MemorySessionTraceManager = exports.DiskSessionTraceManager = void 0;
+    var fs_1 = __importDefault(__require("fs"));
+    var path_1 = __importDefault(__require("path"));
+    var trace_js_1 = require_trace();
+    var DEFAULT_MAX_SESSIONS = 200;
+    var DiskSessionTraceManager2 = class {
+      tracePath;
+      maxSessions;
+      constructor(tracePath, opts = {}) {
+        this.tracePath = tracePath;
+        this.maxSessions = opts.maxSessions ?? DEFAULT_MAX_SESSIONS;
+      }
+      read() {
+        try {
+          const data = JSON.parse(fs_1.default.readFileSync(this.tracePath, "utf-8"));
+          if (data && typeof data === "object" && !("traceId" in data)) {
+            return data;
+          }
+        } catch {
+        }
+        return {};
+      }
+      write(map) {
+        try {
+          fs_1.default.mkdirSync(path_1.default.dirname(this.tracePath), { recursive: true });
+          const entries = Object.entries(map);
+          const capped = entries.length > this.maxSessions ? Object.fromEntries(entries.slice(-this.maxSessions)) : map;
+          fs_1.default.writeFileSync(this.tracePath, JSON.stringify(capped));
+        } catch {
+        }
+      }
+      newTrace(sessionId) {
+        const key = sessionId || "default";
+        const traceId = (0, trace_js_1.generateUlid)();
+        const map = this.read();
+        map[key] = traceId;
+        this.write(map);
+        return traceId;
+      }
+      currentTrace(sessionId) {
+        const key = sessionId || "default";
+        const existing = this.read()[key];
+        if (existing)
+          return existing;
+        return this.newTrace(key);
+      }
+    };
+    exports.DiskSessionTraceManager = DiskSessionTraceManager2;
+    var MemorySessionTraceManager = class {
+      map = /* @__PURE__ */ new Map();
+      maxSessions;
+      constructor(opts = {}) {
+        this.maxSessions = opts.maxSessions ?? DEFAULT_MAX_SESSIONS;
+      }
+      newTrace(sessionId) {
+        const key = sessionId || "default";
+        const traceId = (0, trace_js_1.generateUlid)();
+        this.map.set(key, traceId);
+        if (this.map.size > this.maxSessions) {
+          const oldest = this.map.keys().next().value;
+          if (oldest !== void 0)
+            this.map.delete(oldest);
+        }
+        return traceId;
+      }
+      currentTrace(sessionId) {
+        const key = sessionId || "default";
+        return this.map.get(key) ?? this.newTrace(key);
+      }
+    };
+    exports.MemorySessionTraceManager = MemorySessionTraceManager;
+  }
+});
+
 // ../pinta-core/dist/env-file.js
 var require_env_file = __commonJS({
   "../pinta-core/dist/env-file.js"(exports) {
@@ -708,8 +792,10 @@ var require_env_file = __commonJS({
     var node_fs_1 = __importDefault(__require("node:fs"));
     var node_os_1 = __importDefault(__require("node:os"));
     var node_path_1 = __importDefault(__require("node:path"));
-    function envFilePath2(dir, filename) {
-      return node_path_1.default.join(node_os_1.default.homedir(), dir, filename);
+    function envFilePath2(dir, filename, overrideEnvVar) {
+      const override = overrideEnvVar ? process.env[overrideEnvVar] : void 0;
+      const base = override && override.length > 0 ? override : node_path_1.default.join(node_os_1.default.homedir(), dir);
+      return node_path_1.default.join(base, filename);
     }
     function parseEnvFile2(content) {
       const out = {};
@@ -752,7 +838,7 @@ var require_dist = __commonJS({
   "../pinta-core/dist/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.loadEnvFile = exports.parseEnvFile = exports.envFilePath = exports.generateUlid = exports.TraceManager = exports.parseHeadersEnv = exports.envOptionsResolver = exports.postOtlp = exports.MemoryTransport = exports.DiskTransport = exports.MemoryRetryQueue = exports.DiskRetryQueue = exports.evaluateGuard = exports.mergeBatch = exports.buildPayload = exports.guardAttrs = exports.attrsFromRecord = exports.toOtlpValue = exports.snakeCase = exports.newSpanId = exports.ulidToTraceId = exports.MAX_BYTES = exports.PATTERNS = exports.applyMatches = exports.resolveOverlaps = exports.collectMatches = exports.truncate = exports.redact = void 0;
+    exports.loadEnvFile = exports.parseEnvFile = exports.envFilePath = exports.MemorySessionTraceManager = exports.DiskSessionTraceManager = exports.generateUlid = exports.TraceManager = exports.parseHeadersEnv = exports.envOptionsResolver = exports.postOtlp = exports.MemoryTransport = exports.DiskTransport = exports.MemoryRetryQueue = exports.DiskRetryQueue = exports.evaluateGuard = exports.mergeBatch = exports.buildPayload = exports.guardAttrs = exports.attrsFromRecord = exports.toOtlpValue = exports.snakeCase = exports.newSpanId = exports.ulidToTraceId = exports.MAX_BYTES = exports.PATTERNS = exports.applyMatches = exports.resolveOverlaps = exports.collectMatches = exports.truncate = exports.redact = void 0;
     var redact_js_1 = require_redact();
     Object.defineProperty(exports, "redact", { enumerable: true, get: function() {
       return redact_js_1.redact;
@@ -834,6 +920,13 @@ var require_dist = __commonJS({
     Object.defineProperty(exports, "generateUlid", { enumerable: true, get: function() {
       return trace_js_1.generateUlid;
     } });
+    var session_trace_js_1 = require_session_trace();
+    Object.defineProperty(exports, "DiskSessionTraceManager", { enumerable: true, get: function() {
+      return session_trace_js_1.DiskSessionTraceManager;
+    } });
+    Object.defineProperty(exports, "MemorySessionTraceManager", { enumerable: true, get: function() {
+      return session_trace_js_1.MemorySessionTraceManager;
+    } });
     var env_file_js_1 = require_env_file();
     Object.defineProperty(exports, "envFilePath", { enumerable: true, get: function() {
       return env_file_js_1.envFilePath;
@@ -849,30 +942,19 @@ var require_dist = __commonJS({
 
 // src/env-file.ts
 var import_core = __toESM(require_dist(), 1);
-import os from "node:os";
-import path from "node:path";
 function envFilePath() {
-  const home = process.env.GEMINI_HOME || path.join(os.homedir(), ".gemini");
-  return path.join(home, "pinta-gemini.env");
+  return (0, import_core.envFilePath)(".gemini", "pinta-gemini.env", "GEMINI_HOME");
 }
 function loadEnvFile(filePath = envFilePath()) {
   (0, import_core.loadEnvFile)(filePath);
 }
 
 // src/core/config.ts
-import os2 from "os";
-import path2 from "path";
+var import_core2 = __toESM(require_dist(), 1);
+import os from "os";
+import path from "path";
 function geminiHome() {
-  return process.env.GEMINI_HOME || path2.join(os2.homedir(), ".gemini");
-}
-function parseHeaders(raw) {
-  const out = {};
-  if (!raw) return out;
-  for (const pair of raw.split(",")) {
-    const [k, ...rest] = pair.split("=");
-    if (k && rest.length) out[k.trim()] = rest.join("=").trim();
-  }
-  return out;
+  return process.env.GEMINI_HOME || path.join(os.homedir(), ".gemini");
 }
 function resolveEndpoint() {
   const traces = process.env.GEMINI_PLUGIN_OPTION_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
@@ -882,19 +964,19 @@ function resolveEndpoint() {
   return void 0;
 }
 function resolveHeaders() {
-  const headers = parseHeaders(process.env.GEMINI_PLUGIN_OPTION_HEADERS || process.env.OTEL_EXPORTER_OTLP_HEADERS);
+  const headers = (0, import_core2.parseHeadersEnv)(process.env.GEMINI_PLUGIN_OPTION_HEADERS || process.env.OTEL_EXPORTER_OTLP_HEADERS);
   const apiKey = process.env.GEMINI_PLUGIN_OPTION_API_KEY;
   if (apiKey && !headers["x-pinta-relay-token"]) headers["x-pinta-relay-token"] = apiKey;
   return headers;
 }
 function loadConfig() {
-  const pluginData = process.env.GEMINI_PLUGIN_DATA || path2.join(geminiHome(), "pinta-gemini-data");
+  const pluginData = process.env.GEMINI_PLUGIN_DATA || path.join(geminiHome(), "pinta-gemini-data");
   if (!process.env.PINTA_RELAY_TOKEN && process.env.GEMINI_PLUGIN_OPTION_API_KEY) {
     process.env.PINTA_RELAY_TOKEN = process.env.GEMINI_PLUGIN_OPTION_API_KEY;
   }
   return {
     pluginData,
-    tracePath: path2.join(pluginData, "trace.json"),
+    tracePath: path.join(pluginData, "trace.json"),
     endpoint: resolveEndpoint(),
     headers: resolveHeaders(),
     guardEndpoint: process.env.PINTA_GUARD_ENDPOINT
@@ -954,7 +1036,7 @@ function asString(v) {
 }
 
 // src/core/guard.ts
-var import_core2 = __toESM(require_dist(), 1);
+var import_core3 = __toESM(require_dist(), 1);
 var TIMEOUT_MS = 50;
 var GUARD_UA = "pinta-gemini/0.4.1";
 function shellCommandText(toolInput) {
@@ -964,7 +1046,7 @@ function shellCommandText(toolInput) {
   return typeof v === "string" ? v : void 0;
 }
 function evaluateGuard(input, endpoint, relayToken) {
-  return (0, import_core2.evaluateGuard)(input, endpoint, {
+  return (0, import_core3.evaluateGuard)(input, endpoint, {
     timeoutMs: TIMEOUT_MS,
     token: relayToken ?? process.env.PINTA_RELAY_TOKEN ?? "",
     disabled: process.env.PINTA_GUARD_DISABLED === "1",
@@ -973,8 +1055,8 @@ function evaluateGuard(input, endpoint, relayToken) {
 }
 
 // src/core/transport.ts
-var import_core3 = __toESM(require_dist(), 1);
-var Transport = class extends import_core3.DiskTransport {
+var import_core4 = __toESM(require_dist(), 1);
+var Transport = class extends import_core4.DiskTransport {
   constructor(config) {
     super({
       pluginData: config.pluginData,
@@ -985,49 +1067,17 @@ var Transport = class extends import_core3.DiskTransport {
 };
 
 // src/core/trace.ts
-var import_core4 = __toESM(require_dist(), 1);
-import fs from "fs";
-import path3 from "path";
-var TraceManager = class {
-  tracePath;
+var import_core5 = __toESM(require_dist(), 1);
+var TraceManager = class extends import_core5.DiskSessionTraceManager {
   constructor(config) {
-    this.tracePath = config.tracePath;
-  }
-  read() {
-    try {
-      const data = JSON.parse(fs.readFileSync(this.tracePath, "utf-8"));
-      return data && typeof data === "object" ? data : {};
-    } catch {
-      return {};
-    }
-  }
-  write(map) {
-    try {
-      fs.mkdirSync(path3.dirname(this.tracePath), { recursive: true });
-      fs.writeFileSync(this.tracePath, JSON.stringify(map));
-    } catch {
-    }
-  }
-  /** Start a fresh trace for this session (turn boundary). */
-  newTrace(sessionId) {
-    const map = this.read();
-    const traceId = (0, import_core4.generateUlid)();
-    map[sessionId] = traceId;
-    this.write(map);
-    return traceId;
-  }
-  /** Current trace for this session; creates one if absent. */
-  currentTrace(sessionId) {
-    const map = this.read();
-    if (map[sessionId]) return map[sessionId];
-    return this.newTrace(sessionId);
+    super(config.tracePath);
   }
 };
 
 // src/core/otlp.ts
-import os3 from "os";
-var import_core5 = __toESM(require_dist(), 1);
+import os2 from "os";
 var import_core6 = __toESM(require_dist(), 1);
+var import_core7 = __toESM(require_dist(), 1);
 var PLUGIN_VERSION = "0.4.1";
 function attrPolicy(prefix) {
   return {
@@ -1054,9 +1104,9 @@ function resourceAttrs(serviceName) {
     { key: "telemetry.sdk.language", value: { stringValue: "nodejs" } },
     { key: "telemetry.sdk.version", value: { stringValue: PLUGIN_VERSION } },
     { key: "process.pid", value: { intValue: process.pid } },
-    { key: "process.owner", value: { stringValue: os3.userInfo().username } },
-    { key: "host.name", value: { stringValue: os3.hostname() } },
-    { key: "host.arch", value: { stringValue: os3.arch() } }
+    { key: "process.owner", value: { stringValue: os2.userInfo().username } },
+    { key: "host.name", value: { stringValue: os2.hostname() } },
+    { key: "host.arch", value: { stringValue: os2.arch() } }
   ];
 }
 function buildOtlpPayload(args) {
@@ -1068,7 +1118,7 @@ function buildOtlpPayload(args) {
     { key: `${id.prefix}.agent`, value: { stringValue: args.agent } }
   ];
   if (args.product) attrs.push({ key: `${id.prefix}.product`, value: { stringValue: args.product } });
-  attrs.push(...(0, import_core5.attrsFromRecord)(args.event, id.prefix, policy));
+  attrs.push(...(0, import_core6.attrsFromRecord)(args.event, id.prefix, policy));
   const have = new Set(attrs.map((a) => a.key));
   for (const [field, val] of [
     ["session_id", args.canonical.session_id],
@@ -1077,13 +1127,13 @@ function buildOtlpPayload(args) {
   ]) {
     const key = `${id.prefix}.${field}`;
     if (val != null && !have.has(key)) {
-      const value = (0, import_core5.toOtlpValue)(key, String(val), policy);
+      const value = (0, import_core6.toOtlpValue)(key, String(val), policy);
       if (value !== null) attrs.push({ key, value });
     }
   }
-  return (0, import_core5.buildPayload)({
+  return (0, import_core6.buildPayload)({
     traceId: args.traceId,
-    spanName: `${id.ingest}.${(0, import_core5.snakeCase)(args.canonical.hook)}`,
+    spanName: `${id.ingest}.${(0, import_core6.snakeCase)(args.canonical.hook)}`,
     attributes: attrs,
     resource: resourceAttrs(id.service),
     scope: { name: "pinta-gemini", version: PLUGIN_VERSION },
@@ -1104,13 +1154,13 @@ function formatDecision(agent, event, guard) {
 }
 
 // src/core/invocation-log.ts
-import fs2 from "fs";
-import path4 from "path";
+import fs from "fs";
+import path2 from "path";
 function logInvocation(config, rec) {
   if (process.env.PINTA_GEMINI_DEBUG !== "1") return;
   try {
-    fs2.mkdirSync(config.pluginData, { recursive: true });
-    fs2.appendFileSync(path4.join(config.pluginData, "invocations.jsonl"), JSON.stringify(rec) + "\n");
+    fs.mkdirSync(config.pluginData, { recursive: true });
+    fs.appendFileSync(path2.join(config.pluginData, "invocations.jsonl"), JSON.stringify(rec) + "\n");
   } catch {
   }
 }

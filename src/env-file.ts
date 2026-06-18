@@ -7,17 +7,18 @@
  *
  * The parser + merge semantics live in the shared package; this module only
  * binds gemini's path (honoring the GEMINI_HOME override, which the shared
- * `envFilePath(dir, filename)` helper does not handle).
+ * `envFilePath(dir, filename, overrideEnvVar)` helper handles directly).
  */
-import os from "node:os";
-import path from "node:path";
-import { loadEnvFile as coreLoadEnvFile, parseEnvFile } from "@pinta-ai/core";
+import {
+  envFilePath as coreEnvFilePath,
+  loadEnvFile as coreLoadEnvFile,
+  parseEnvFile,
+} from "@pinta-ai/core";
 
 export { parseEnvFile };
 
 export function envFilePath(): string {
-  const home = process.env.GEMINI_HOME || path.join(os.homedir(), ".gemini");
-  return path.join(home, "pinta-gemini.env");
+  return coreEnvFilePath(".gemini", "pinta-gemini.env", "GEMINI_HOME");
 }
 
 export function loadEnvFile(filePath: string = envFilePath()): void {
