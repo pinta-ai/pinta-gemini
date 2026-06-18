@@ -7,25 +7,8 @@
  */
 import fs from "fs";
 import path from "path";
-import crypto from "crypto";
+import { generateUlid } from "@pinta-ai/core";
 import type { PintaConfig } from "./config.js";
-
-const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-function generateUlid(): string {
-  const now = Date.now();
-  let ts = "";
-  let t = now;
-  for (let i = 0; i < 10; i++) {
-    ts = CROCKFORD[t & 31] + ts;
-    t = Math.floor(t / 32);
-  }
-  const rand = crypto.randomBytes(10);
-  let r = "";
-  for (let i = 0; i < 10; i++) r += CROCKFORD[rand[i] & 31];
-  while (r.length < 16) r += CROCKFORD[0];
-  return ts + r;
-}
 
 export class TraceManager {
   private tracePath: string;
