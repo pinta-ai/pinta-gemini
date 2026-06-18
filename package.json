@@ -17,7 +17,7 @@
   },
   "scripts": {
     "bump": "node scripts/bump.mjs",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/index.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/index.js --banner:js=\"import { createRequire as __pintaCreateRequire } from 'module'; const require = __pintaCreateRequire(import.meta.url);\"",
     "test": "vitest run",
     "install-hooks": "tsx tools/install-hooks.ts",
     "uninstall-hooks": "tsx tools/install-hooks.ts --uninstall",
@@ -26,6 +26,9 @@
     "e2e": "tsx tools/e2e-hooks.ts",
     "e2e:config": "tsx tools/e2e-from-config.ts",
     "demo": "tsx tools/demo-trace.ts"
+  },
+  "dependencies": {
+    "@pinta-ai/core": "file:../pinta-core"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

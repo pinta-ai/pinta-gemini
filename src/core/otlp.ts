@@ -4,88 +4,64 @@
  * span name = "<ingest>.<snake(hook)>"; attributes = ingest.type + <prefix>.*
  * (every top-level event field) + pinta.guard.* when guarded. Resource carries
  * service.name per host family + host/process info. ULID → 32-hex traceId.
+ *
+ * The OTLP envelope + the redaction-aware attribute pipeline now live in
+ * @pinta-ai/core. This module keeps only the gemini-specific bits: multi-host
+ * identity (ingest.type / prefix / service.name), the cross-host canonical key
+ * merge, resource attributes, and the per-prefix redaction policy.
  */
-import crypto from "crypto";
 import os from "os";
 import type { Agent, Canonical, RawEvent } from "./types.js";
 import { identity } from "./types.js";
-import { redact, truncate } from "./redact.js";
-import type { GuardResult } from "./guard.js";
+import {
+  attrsFromRecord,
+  buildPayload,
+  mergeBatch,
+  snakeCase,
+  toOtlpValue,
+  type AttrPolicy,
+  type GuardResult,
+  type OtlpAttribute,
+  type OtlpPayload,
+} from "@pinta-ai/core";
+
+// Re-exported so the rest of the adapter keeps its existing import surface.
+export {
+  mergeBatch,
+  ulidToTraceId,
+  newSpanId,
+} from "@pinta-ai/core";
+export type {
+  OtlpAttribute,
+  OtlpSpan,
+  ResourceSpans,
+  OtlpPayload,
+} from "@pinta-ai/core";
 
 export const PLUGIN_VERSION = "0.4.1";
 
-export interface OtlpAttribute {
-  key: string;
-  value: { stringValue: string } | { intValue: number } | { doubleValue: number } | { boolValue: boolean };
-}
-export interface OtlpSpan {
-  traceId: string;
-  spanId: string;
-  name: string;
-  kind: number;
-  startTimeUnixNano: string;
-  endTimeUnixNano: string;
-  attributes: OtlpAttribute[];
-}
-export interface ResourceSpans {
-  resource: { attributes: OtlpAttribute[] };
-  scopeSpans: Array<{ scope: { name: string; version: string }; spans: OtlpSpan[] }>;
-}
-export interface OtlpPayload {
-  resourceSpans: ResourceSpans[];
-}
-
-const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-export function ulidToTraceId(ulid: string): string {
-  if (ulid.length !== 26) throw new Error(`ulidToTraceId: expected 26 chars, got ${ulid.length}`);
-  let n = 0n;
-  for (const ch of ulid) {
-    const idx = CROCKFORD.indexOf(ch);
-    if (idx < 0) throw new Error(`ulidToTraceId: invalid Crockford char "${ch}"`);
-    n = (n << 5n) | BigInt(idx);
-  }
-  n &= (1n << 128n) - 1n;
-  return n.toString(16).padStart(32, "0");
-}
-
-export function newSpanId(): string {
-  return crypto.randomBytes(8).toString("hex");
-}
-
-function snakeCase(s: string): string {
-  return s
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .replace(/([A-Z])([A-Z][a-z])/g, "$1_$2")
-    .toLowerCase();
-}
-
-function maybeRedactString(prefix: string, key: string, raw: string): string {
-  const truncated = truncate(raw);
-  const skip = new Set([`${prefix}.hook`, `${prefix}.agent`, `${prefix}.tool_name`, `${prefix}.session_id`, `${prefix}.transcript_path`, `${prefix}.transcriptPath`, `${prefix}.cwd`]);
-  if (skip.has(key)) return truncated;
-  const context = key === `${prefix}.tool_input` || key === `${prefix}.tool_response` || key === `${prefix}.toolCall` ? ("bash" as const) : undefined;
-  return redact(truncated, { context });
-}
-
-function toOtlpValue(prefix: string, key: string, v: unknown): OtlpAttribute["value"] | null {
-  if (v === null || v === undefined) return null;
-  switch (typeof v) {
-    case "string":
-      return { stringValue: maybeRedactString(prefix, key, v) };
-    case "boolean":
-      return { boolValue: v };
-    case "number":
-      return Number.isInteger(v) ? { intValue: v } : { doubleValue: v };
-    case "object":
-      try {
-        return { stringValue: maybeRedactString(prefix, key, JSON.stringify(v)) };
-      } catch {
-        return { stringValue: maybeRedactString(prefix, key, String(v)) };
-      }
-    default:
-      return { stringValue: maybeRedactString(prefix, key, String(v)) };
-  }
+/**
+ * Redaction policy for a given host prefix. Skip keys are identifiers / our own
+ * keys (truncation still applies); bash-context keys may carry shell command
+ * text (Gemini's tool_input/tool_response, Antigravity's toolCall).
+ */
+function attrPolicy(prefix: string): AttrPolicy {
+  return {
+    skipRedactKeys: new Set([
+      `${prefix}.hook`,
+      `${prefix}.agent`,
+      `${prefix}.tool_name`,
+      `${prefix}.session_id`,
+      `${prefix}.transcript_path`,
+      `${prefix}.transcriptPath`,
+      `${prefix}.cwd`,
+    ]),
+    bashContextKeys: new Set([
+      `${prefix}.tool_input`,
+      `${prefix}.tool_response`,
+      `${prefix}.toolCall`,
+    ]),
+  };
 }
 
 function resourceAttrs(serviceName: string): OtlpAttribute[] {
@@ -111,8 +87,7 @@ export function buildOtlpPayload(args: {
   product?: string; // DG11 antigravity sub-label
 }): OtlpPayload {
   const id = identity(args.agent);
-  const ts = args.now ?? Date.now();
-  const tsNano = (BigInt(ts) * 1_000_000n).toString();
+  const policy = attrPolicy(id.prefix);
 
   const attrs: OtlpAttribute[] = [
     { key: "ingest.type", value: { stringValue: id.ingest } },
@@ -121,11 +96,7 @@ export function buildOtlpPayload(args: {
   ];
   if (args.product) attrs.push({ key: `${id.prefix}.product`, value: { stringValue: args.product } });
   // Bronze: flatten every top-level event field under the prefix.
-  for (const [k, v] of Object.entries(args.event)) {
-    const key = `${id.prefix}.${k}`;
-    const value = toOtlpValue(id.prefix, key, v);
-    if (value !== null) attrs.push({ key, value });
-  }
+  attrs.push(...attrsFromRecord(args.event, id.prefix, policy));
   // Canonical cross-host keys — uniform `<prefix>.session_id|cwd|tool_name` so
   // queries work the same for gemini (snake raw) and antigravity (camel raw,
   // e.g. conversationId/workspacePaths). Only added when Bronze didn't already
@@ -137,33 +108,19 @@ export function buildOtlpPayload(args: {
     ["tool_name", args.canonical.tool_name],
   ] as const) {
     const key = `${id.prefix}.${field}`;
-    if (val != null && !have.has(key)) attrs.push({ key, value: { stringValue: maybeRedactString(id.prefix, key, String(val)) } });
-  }
-  if (args.guard) {
-    attrs.push(
-      { key: "pinta.guard.decision", value: { stringValue: args.guard.decision.toLowerCase() } },
-      { key: "pinta.guard.duration_ms", value: { intValue: args.guard.durationMs } },
-    );
-    if (args.guard.reason) attrs.push({ key: "pinta.guard.matched_rule", value: { stringValue: args.guard.reason } });
-    if (args.guard.failOpenReason) attrs.push({ key: "pinta.guard.fail_open_reason", value: { stringValue: args.guard.failOpenReason } });
+    if (val != null && !have.has(key)) {
+      const value = toOtlpValue(key, String(val), policy);
+      if (value !== null) attrs.push({ key, value });
+    }
   }
 
-  const span: OtlpSpan = {
-    traceId: ulidToTraceId(args.traceId),
-    spanId: newSpanId(),
-    name: `${id.ingest}.${snakeCase(args.canonical.hook)}`,
-    kind: 1,
-    startTimeUnixNano: tsNano,
-    endTimeUnixNano: tsNano,
+  return buildPayload({
+    traceId: args.traceId,
+    spanName: `${id.ingest}.${snakeCase(args.canonical.hook)}`,
     attributes: attrs,
-  };
-  return {
-    resourceSpans: [{ resource: { attributes: resourceAttrs(id.service) }, scopeSpans: [{ scope: { name: "pinta-gemini", version: PLUGIN_VERSION }, spans: [span] }] }],
-  };
-}
-
-export function mergeBatch(payloads: OtlpPayload[]): OtlpPayload {
-  const out: ResourceSpans[] = [];
-  for (const p of payloads) out.push(...p.resourceSpans);
-  return { resourceSpans: out };
+    resource: resourceAttrs(id.service),
+    scope: { name: "pinta-gemini", version: PLUGIN_VERSION },
+    now: args.now,
+    guard: args.guard,
+  });
 }

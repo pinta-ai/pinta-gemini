@@ -1,44 +1,25 @@
 /**
- * ~/.gemini/pinta-gemini.env loader (SPEC §12).
+ * ~/.gemini/pinta-gemini.env loader (SPEC §12) — gemini binding over @pinta-ai/core.
  *
  * The real host doesn't pass our env to the hook subprocess, so this file is the
  * injection vector for OTLP endpoint / guard endpoint / relay token / debug.
  * Merges only UNSET keys (explicit shell exports win). Missing file = no-op.
+ *
+ * The parser + merge semantics live in the shared package; this module only
+ * binds gemini's path (honoring the GEMINI_HOME override, which the shared
+ * `envFilePath(dir, filename)` helper does not handle).
  */
-import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { loadEnvFile as coreLoadEnvFile, parseEnvFile } from "@pinta-ai/core";
+
+export { parseEnvFile };
 
 export function envFilePath(): string {
   const home = process.env.GEMINI_HOME || path.join(os.homedir(), ".gemini");
   return path.join(home, "pinta-gemini.env");
 }
 
-export function parseEnvFile(content: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const raw of content.split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const idx = line.indexOf("=");
-    if (idx < 0) continue;
-    const key = line.slice(0, idx).trim();
-    let value = line.slice(idx + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    if (key) out[key] = value;
-  }
-  return out;
-}
-
 export function loadEnvFile(filePath: string = envFilePath()): void {
-  let content: string;
-  try {
-    content = fs.readFileSync(filePath, "utf-8");
-  } catch {
-    return;
-  }
-  for (const [key, value] of Object.entries(parseEnvFile(content))) {
-    if (process.env[key] === undefined) process.env[key] = value;
-  }
+  coreLoadEnvFile(filePath);
 }
