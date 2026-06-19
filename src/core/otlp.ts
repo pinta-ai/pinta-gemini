@@ -16,7 +16,6 @@ import { identity } from "./types.js";
 import {
   attrsFromRecord,
   buildPayload,
-  mergeBatch,
   snakeCase,
   toOtlpValue,
   type AttrPolicy,
@@ -25,18 +24,9 @@ import {
   type OtlpPayload,
 } from "@pinta-ai/core";
 
-// Re-exported so the rest of the adapter keeps its existing import surface.
-export {
-  mergeBatch,
-  ulidToTraceId,
-  newSpanId,
-} from "@pinta-ai/core";
-export type {
-  OtlpAttribute,
-  OtlpSpan,
-  ResourceSpans,
-  OtlpPayload,
-} from "@pinta-ai/core";
+// Re-exported so the rest of the adapter keeps its existing import surface
+// (ulidToTraceId is consumed by the tests; the builder below returns OtlpPayload).
+export { ulidToTraceId } from "@pinta-ai/core";
 
 export const PLUGIN_VERSION = "0.4.1";
 

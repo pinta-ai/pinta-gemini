@@ -37,15 +37,29 @@ export interface Identity {
   ingest: string;
   service: string;
 }
+
+/** Per-host-family constants — the single source for all isGemini branching. */
+interface HostProfile {
+  identity: Identity;
+  gateEvent: string; // tool-gate event (where guard runs)
+}
+const GEMINI: HostProfile = {
+  identity: { prefix: "gemini", ingest: "gemini", service: "gemini-cli" },
+  gateEvent: "BeforeTool",
+};
+const ANTIGRAVITY: HostProfile = {
+  identity: { prefix: "antigravity", ingest: "antigravity", service: "antigravity-cli" },
+  gateEvent: "PreToolUse",
+};
+const profile = (agent: Agent): HostProfile => (isGemini(agent) ? GEMINI : ANTIGRAVITY);
+
 export function identity(agent: Agent): Identity {
-  return isGemini(agent)
-    ? { prefix: "gemini", ingest: "gemini", service: "gemini-cli" }
-    : { prefix: "antigravity", ingest: "antigravity", service: "antigravity-cli" };
+  return profile(agent).identity;
 }
 
 /** Tool-gate event (where guard runs) per host family. */
 export function gateEvent(agent: Agent): string {
-  return isGemini(agent) ? "BeforeTool" : "PreToolUse";
+  return profile(agent).gateEvent;
 }
 
 /**

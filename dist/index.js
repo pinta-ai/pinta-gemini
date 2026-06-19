@@ -176,13 +176,13 @@ var require_otlp = __commonJS({
     };
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ulidToTraceId = ulidToTraceId2;
-    exports.newSpanId = newSpanId2;
+    exports.newSpanId = newSpanId;
     exports.snakeCase = snakeCase2;
     exports.toOtlpValue = toOtlpValue2;
     exports.attrsFromRecord = attrsFromRecord2;
     exports.guardAttrs = guardAttrs;
     exports.buildPayload = buildPayload2;
-    exports.mergeBatch = mergeBatch3;
+    exports.mergeBatch = mergeBatch;
     var crypto_1 = __importDefault(__require("crypto"));
     var redact_js_1 = require_redact();
     var CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -201,7 +201,7 @@ var require_otlp = __commonJS({
       n &= mask;
       return n.toString(16).padStart(32, "0");
     }
-    function newSpanId2() {
+    function newSpanId() {
       return crypto_1.default.randomBytes(8).toString("hex");
     }
     function snakeCase2(name) {
@@ -269,7 +269,7 @@ var require_otlp = __commonJS({
         attrs.push(...guardAttrs(args.guard));
       const span = {
         traceId: ulidToTraceId2(args.traceId),
-        spanId: newSpanId2(),
+        spanId: newSpanId(),
         name: args.spanName,
         kind: args.spanKind ?? 1,
         startTimeUnixNano: tsNano,
@@ -285,7 +285,7 @@ var require_otlp = __commonJS({
         ]
       };
     }
-    function mergeBatch3(payloads) {
+    function mergeBatch(payloads) {
       const out = [];
       for (const p of payloads)
         out.push(...p.resourceSpans);
@@ -1001,11 +1001,20 @@ function antigravityProduct(ev) {
 
 // src/core/types.ts
 var isGemini = (agent) => agent === "gemini";
+var GEMINI = {
+  identity: { prefix: "gemini", ingest: "gemini", service: "gemini-cli" },
+  gateEvent: "BeforeTool"
+};
+var ANTIGRAVITY = {
+  identity: { prefix: "antigravity", ingest: "antigravity", service: "antigravity-cli" },
+  gateEvent: "PreToolUse"
+};
+var profile = (agent) => isGemini(agent) ? GEMINI : ANTIGRAVITY;
 function identity(agent) {
-  return isGemini(agent) ? { prefix: "gemini", ingest: "gemini", service: "gemini-cli" } : { prefix: "antigravity", ingest: "antigravity", service: "antigravity-cli" };
+  return profile(agent).identity;
 }
 function gateEvent(agent) {
-  return isGemini(agent) ? "BeforeTool" : "PreToolUse";
+  return profile(agent).gateEvent;
 }
 var SKIP_HOOKS = /* @__PURE__ */ new Set(["AfterModel"]);
 var isSkippedHook = (hook) => SKIP_HOOKS.has(hook);
