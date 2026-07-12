@@ -16,20 +16,24 @@ the private registry.
 ## One-time setup
 1. Publish `@pinta-ai/core` to GitHub Packages first (see the `pinta-core` repo's
    `publish` workflow). Ensure this repo / the org has `read:packages` access.
-2. Add repo secret **`NPM_TOKEN`** — an npmjs automation token with publish
-   rights for the `@pinta-ai` scope.
+2. Configure npmjs **trusted publishing (OIDC)** for `@pinta-ai/pinta-gemini`,
+   pointing at this repo's `publish` workflow. No `NPM_TOKEN` secret is needed
+   — or wanted: a `//registry.npmjs.org/:_authToken=${NPM_TOKEN}` line in
+   `.npmrc` expands to an *empty* token when the secret does not exist and makes
+   `npm publish` fail `ENEEDAUTH` instead of falling through to OIDC.
 3. `GITHUB_TOKEN` (auto in Actions) authenticates the GitHub Packages fetch of
-   `@pinta-ai/core`; `NPM_TOKEN` authenticates the npmjs publish. Both are wired
-   via the committed `.npmrc` + the `publish` workflow.
+   `@pinta-ai/core`. It is scoped to the `npm ci` step alone, so it is not sent
+   to npmjs during publish; the publish itself is authenticated by OIDC
+   (`permissions.id-token: write` + setup-node's `registry-url`).
 
 ## Activate the @pinta-ai/core dependency (after core's first publish)
-`package.json` declares `@pinta-ai/core: ^0.2.0` (devDependency). Record its
+`package.json` declares `@pinta-ai/core: ^0.3.0` (devDependency). Record its
 GitHub Packages resolution into `package-lock.json` once — point this single
 install at GitHub Packages (the committed `.npmrc` has no scope redirect):
 
 ```sh
 export NODE_AUTH_TOKEN=<github PAT with read:packages>
-npm install @pinta-ai/core@^0.2.0 --save-dev --registry=https://npm.pkg.github.com
+npm install @pinta-ai/core@^0.3.0 --save-dev --registry=https://npm.pkg.github.com
 git add package.json package-lock.json
 git commit -m "chore: lock @pinta-ai/core from GitHub Packages"
 ```
