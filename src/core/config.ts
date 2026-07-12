@@ -11,6 +11,7 @@
  */
 import os from "os";
 import path from "path";
+import { parseHeadersEnv } from "@pinta-ai/core";
 
 export interface PintaConfig {
   pluginData: string;
@@ -24,16 +25,6 @@ function geminiHome(): string {
   return process.env.GEMINI_HOME || path.join(os.homedir(), ".gemini");
 }
 
-function parseHeaders(raw: string | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!raw) return out;
-  for (const pair of raw.split(",")) {
-    const [k, ...rest] = pair.split("=");
-    if (k && rest.length) out[k.trim()] = rest.join("=").trim();
-  }
-  return out;
-}
-
 function resolveEndpoint(): string | undefined {
   const traces = process.env.GEMINI_PLUGIN_OPTION_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
   if (traces) return traces.replace(/\/+$/, "");
@@ -43,7 +34,7 @@ function resolveEndpoint(): string | undefined {
 }
 
 function resolveHeaders(): Record<string, string> {
-  const headers = parseHeaders(process.env.GEMINI_PLUGIN_OPTION_HEADERS || process.env.OTEL_EXPORTER_OTLP_HEADERS);
+  const headers = parseHeadersEnv(process.env.GEMINI_PLUGIN_OPTION_HEADERS || process.env.OTEL_EXPORTER_OTLP_HEADERS);
   const apiKey = process.env.GEMINI_PLUGIN_OPTION_API_KEY;
   if (apiKey && !headers["x-pinta-relay-token"]) headers["x-pinta-relay-token"] = apiKey;
   return headers;
