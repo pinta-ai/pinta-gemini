@@ -101,10 +101,30 @@ function antigravityFile(home: string, workspace?: string): string {
 function installAntigravity(agent: Agent, home: string, workspace: string | undefined, dryRun: boolean, uninstall: boolean): void {
   const file = antigravityFile(home, workspace);
   let root: any = {};
-  try {
-    root = JSON.parse(fs.readFileSync(file, "utf-8"));
-  } catch {
-    /* none */
+  if (fs.existsSync(file)) {
+    // The file EXISTS: a parse failure means it is CORRUPT, not absent. Silently
+    // restarting from `{}` here would drop the user's OTHER named hooks on the
+    // next write — and the `.pinta-bak` is written only once, so a clean backup
+    // may already exist and the corrupt content would clobber the good config.
+    // Refuse instead; preserve the absent→create path above untouched.
+    const raw = fs.readFileSync(file, "utf-8");
+    try {
+      root = JSON.parse(raw);
+    } catch (err) {
+      console.error(
+        `refusing to modify ${file}: it exists but is not valid JSON (${(err as Error).message}).\n` +
+          `Fix or remove the file (restore from ${file}.pinta-bak if present), then re-run.`,
+      );
+      process.exit(2);
+    }
+    if (root === null || typeof root !== "object" || Array.isArray(root)) {
+      const kind = Array.isArray(root) ? "an array" : root === null ? "null" : typeof root;
+      console.error(
+        `refusing to modify ${file}: expected a JSON object at the top level but found ${kind}.\n` +
+          `Fix or remove the file (restore from ${file}.pinta-bak if present), then re-run.`,
+      );
+      process.exit(2);
+    }
   }
   if (uninstall) {
     if (root && typeof root === "object" && HOOK_NAME in root) {

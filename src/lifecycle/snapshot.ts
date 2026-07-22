@@ -29,7 +29,7 @@
  * sleep are all injectable so tests can drive both paths deterministically.
  */
 import { spawn } from "node:child_process";
-import { access, copyFile, mkdtemp, stat } from "node:fs/promises";
+import { access, copyFile, mkdtemp, rm, stat } from "node:fs/promises";
 import { constants as FS_CONSTANTS } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -55,6 +55,12 @@ export interface SnapshotOpts {
   sleep?: (ms: number) => Promise<void>;
   /** Test hook: fires after each fallback copy, before the originals are re-`stat`'d. */
   onCopied?: (attempt: number) => void | Promise<void>;
+  /**
+   * Overall wall-clock budget for one snapshot attempt (default 60000). Bounds
+   * the CLI `.backup` (killed if it hangs on a locked db) and the quiesce-copy
+   * stability wait. Set `0` to disable.
+   */
+  overallTimeoutMs?: number;
 }
 
 /** Cached CLI probe result: `undefined` = not yet probed, `null` = unavailable. */
@@ -99,20 +105,38 @@ export function resetSqlite3Cache(): void {
   cachedSqlite3 = undefined;
 }
 
-async function backupViaCli(bin: string, src: string, dest: string): Promise<void> {
+async function backupViaCli(bin: string, src: string, dest: string, timeoutMs: number): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(bin, [src, `.backup '${dest}'`], { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      fn();
+    };
+    // Overall deadline: a `.backup` against a wedged/locked db can block forever.
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        finish(() => reject(new Error(`sqlite3 .backup timed out after ${timeoutMs}ms: ${src}`)));
+      }, timeoutMs);
+      timer.unref?.();
+    }
     child.stderr?.on("data", (d) => {
       stderr += String(d);
     });
-    child.on("error", reject);
+    child.on("error", (err) => finish(() => reject(err)));
     child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`sqlite3 .backup exited ${code}${stderr ? `: ${stderr.trim()}` : ""}`));
-      }
+      finish(() => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`sqlite3 .backup exited ${code}${stderr ? `: ${stderr.trim()}` : ""}`));
+        }
+      });
     });
   });
 }
@@ -149,11 +173,17 @@ async function quiesceCopy(src: string, dir: string, dest: string, opts: Snapsho
   const maxRetries = opts.maxRetries ?? 3;
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const overallTimeoutMs = opts.overallTimeoutMs ?? 60000;
+  const start = now();
 
   // The db and its (optional) live WAL/SHM siblings.
   const members = [src, `${src}-wal`, `${src}-shm`];
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // Bounded wall-clock deadline, independent of the retry count.
+    if (overallTimeoutMs > 0 && now() - start > overallTimeoutMs) {
+      throw new Error(`snapshot quiesce-copy exceeded overall deadline of ${overallTimeoutMs}ms: ${src}`);
+    }
     const before = await signatures(members);
     if (before.get(src) === "absent") {
       throw new Error(`snapshot source vanished: ${src}`);
@@ -204,12 +234,19 @@ async function quiesceCopy(src: string, dir: string, dest: string, opts: Snapsho
 export async function snapshotDb(file: TranscriptFile, opts: SnapshotOpts = {}): Promise<string> {
   const base = opts.tmpDirBase ?? os.tmpdir();
   const dir = await mkdtemp(path.join(base, "pinta-gemini-snap-"));
-  const dest = path.join(dir, path.basename(file.absPath));
-
-  const bin = opts.sqlite3Path !== undefined ? opts.sqlite3Path : await detectSqlite3();
-  if (bin) {
-    await backupViaCli(bin, file.absPath, dest);
-    return dest;
+  try {
+    const dest = path.join(dir, path.basename(file.absPath));
+    const bin = opts.sqlite3Path !== undefined ? opts.sqlite3Path : await detectSqlite3();
+    if (bin) {
+      await backupViaCli(bin, file.absPath, dest, opts.overallTimeoutMs ?? 60000);
+      return dest;
+    }
+    return await quiesceCopy(file.absPath, dir, dest, opts);
+  } catch (err) {
+    // The caller only deletes the snapshot dir on success, so a throw from
+    // either strategy would leak the mkdtemp dir (these accumulate under a
+    // periodic tmp scan). Clean it up before re-throwing.
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+    throw err;
   }
-  return quiesceCopy(file.absPath, dir, dest, opts);
 }
