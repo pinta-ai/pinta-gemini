@@ -28,7 +28,7 @@ import {
 // (ulidToTraceId is consumed by the tests; the builder below returns OtlpPayload).
 export { ulidToTraceId } from "@pinta-ai/core";
 
-export const PLUGIN_VERSION = "0.6.0";
+export const PLUGIN_VERSION = "0.7.0";
 
 /**
  * Redaction policy for a given host prefix. Skip keys are identifiers / our own
