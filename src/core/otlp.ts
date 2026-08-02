@@ -28,6 +28,21 @@ import {
 // (ulidToTraceId is consumed by the tests; the builder below returns OtlpPayload).
 export { ulidToTraceId } from "@pinta-ai/core";
 
+let cachedProcessOwner: string | undefined;
+function processOwner(): string {
+  if (cachedProcessOwner === undefined) {
+    try {
+      cachedProcessOwner = os.userInfo().username;
+    } catch {
+      cachedProcessOwner =
+        process.env.USER ??
+        process.env.LOGNAME ??
+        (typeof process.getuid === "function" ? String(process.getuid()) : "unknown");
+    }
+  }
+  return cachedProcessOwner;
+}
+
 export const PLUGIN_VERSION = "0.6.1";
 
 /**
@@ -61,7 +76,7 @@ function resourceAttrs(serviceName: string): OtlpAttribute[] {
     { key: "telemetry.sdk.language", value: { stringValue: "nodejs" } },
     { key: "telemetry.sdk.version", value: { stringValue: PLUGIN_VERSION } },
     { key: "process.pid", value: { intValue: process.pid } },
-    { key: "process.owner", value: { stringValue: os.userInfo().username } },
+    { key: "process.owner", value: { stringValue: processOwner() } },
     { key: "host.name", value: { stringValue: os.hostname() } },
     { key: "host.arch", value: { stringValue: os.arch() } },
   ];

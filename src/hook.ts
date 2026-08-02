@@ -68,13 +68,19 @@ export async function runHook(): Promise<void> {
         );
       }
 
-      const product = isGemini(agent) ? undefined : antigravityProduct(ev);
-      await transport.send(buildOtlpPayload({ agent, canonical: c, event: ev, traceId, guard, product }));
+      // Decide FIRST — the guard verdict must be locked in before telemetry, so a
+      // telemetry failure can never discard an already-obtained DENY.
       out = formatDecision(agent, event, guard);
+
+      const product = isGemini(agent) ? undefined : antigravityProduct(ev);
+      // Telemetry send is best-effort; if it throws, the catch preserves `out` below.
+      await transport.send(buildOtlpPayload({ agent, canonical: c, event: ev, traceId, guard, product }));
     }
   } catch (e) {
     process.stderr.write(`[pinta-gemini] error: ${e}\n`);
-    out = {}; // fail-open
+    // Preserve an already-obtained guard decision (esp. DENY); only fail-open when no
+    // guard verdict was reached. Telemetry failure must never flip a DENY to ALLOW.
+    out = guard ? formatDecision(agent, event, guard) : {};
   }
 
   logInvocation(config, {
