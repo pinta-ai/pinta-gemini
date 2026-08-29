@@ -61,8 +61,14 @@ export async function runHook(): Promise<void> {
         const rawToolInput =
           shellCommandText(c.tool_input) ??
           (typeof c.tool_input === "string" ? c.tool_input : JSON.stringify(c.tool_input ?? null));
+        // `cwd` and `hook` are already on the canonical event and were being
+        // dropped. `cwd` locates a relative target — `rm -rf passwd` reads as
+        // routine work until you know it was issued from /etc (PTA-176) — and
+        // the event is what lets the manager trust the tool name, since Claude
+        // Code owns those names and neither gemini nor antigravity does
+        // (PTA-207).
         guard = await evaluateGuard(
-          { spanId: sessionId, toolName: c.tool_name, toolInput: c.tool_input, rawTextFields: { toolInput: rawToolInput } },
+          { spanId: sessionId, toolName: c.tool_name, method: c.hook, cwd: c.cwd, toolInput: c.tool_input, rawTextFields: { toolInput: rawToolInput } },
           config.guardEndpoint,
           config.headers['x-pinta-relay-token'],
         );
