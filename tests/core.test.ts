@@ -127,3 +127,38 @@ describe("otlp", () => {
     expect(attrs["pinta.guard.matched_rule"]).toBe("rule_x");
   });
 });
+
+/**
+ * What the guard is told about the invocation.
+ *
+ * `normalize` already lifts `cwd` out of both host shapes — gemini's `cwd` and
+ * antigravity's `workspacePaths[0]` — and the canonical event carries `hook`.
+ * Both were being dropped at the guard call.
+ *
+ * `cwd` locates a relative target: `rm -rf passwd` reads as routine work until
+ * you know it was issued from /etc (PTA-176). `hook` is what lets the manager
+ * trust the tool name, since Claude Code owns those names and neither gemini
+ * nor antigravity does, so without it a tool called `Read` is taken at its
+ * word and its arguments are read as content (PTA-207).
+ */
+describe("normalize carries what the guard needs", () => {
+  it("lifts gemini's cwd and hook", () => {
+    const c = normalize("gemini", undefined, {
+      hook_event_name: "PreToolUse",
+      session_id: "s1",
+      cwd: "/etc",
+      tool_name: "run_shell_command",
+      tool_input: { command: "rm -rf passwd" },
+    });
+    expect(c).toMatchObject({ cwd: "/etc", hook: "PreToolUse" });
+  });
+
+  it("lifts antigravity's workspace path as the cwd", () => {
+    const c = normalize("antigravity", "PreToolUse", {
+      conversationId: "c1",
+      workspacePaths: ["/etc", "/tmp"],
+      toolCall: { name: "run_command", args: { command: "rm -rf passwd" } },
+    });
+    expect(c).toMatchObject({ cwd: "/etc", hook: "PreToolUse" });
+  });
+});
