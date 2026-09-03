@@ -6,6 +6,7 @@
 // tool-input extraction, not a shared utility.
 import { evaluateGuard as coreEvaluateGuard } from "@pinta-ai/core";
 import type { GuardInput, GuardResult } from "@pinta-ai/core";
+import { identity, type Agent } from "./types.js";
 
 export type { GuardInput, GuardResult } from "@pinta-ai/core";
 
@@ -41,11 +42,24 @@ export function evaluateGuard(
   // GEMINI_PLUGIN_OPTION_HEADERS) so trace and guard share one env source.
   // Falls back to PINTA_RELAY_TOKEN for back-compat with older enrollments.
   relayToken?: string,
+  // Which host is running. Required to name the agent: this bundle serves both
+  // Gemini CLI and Antigravity, so the User-Agent — one fixed
+  // `pinta-gemini/<version>` for both — cannot carry the distinction, and the
+  // manager reading only that answered `unknown` for every call from here
+  // (PTA-260). `identity(agent).ingest` is the same value the telemetry leg has
+  // been sending as `ingest.type` all along; this puts it on the guard leg too,
+  // so both paths name the agent the same way.
+  agent?: Agent,
 ): Promise<GuardResult | null> {
   return coreEvaluateGuard(input, endpoint, {
     timeoutMs: TIMEOUT_MS,
     token: relayToken ?? process.env.PINTA_RELAY_TOKEN ?? "",
     disabled: process.env.PINTA_GUARD_DISABLED === "1",
     userAgent: GUARD_UA,
+    // Omitted when the caller does not say, rather than defaulted to "gemini".
+    // Half of this bundle's installs are Antigravity, so a default is not a
+    // safe guess — it is a wrong answer for half of them, and a wrong agent
+    // blocks the client a rule did not name while missing the one it did.
+    agentType: agent ? identity(agent).ingest : undefined,
   });
 }

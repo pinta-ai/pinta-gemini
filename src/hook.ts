@@ -71,6 +71,7 @@ export async function runHook(): Promise<void> {
           { spanId: sessionId, toolName: c.tool_name, method: c.hook, cwd: c.cwd, toolInput: c.tool_input, rawTextFields: { toolInput: rawToolInput } },
           config.guardEndpoint,
           config.headers['x-pinta-relay-token'],
+          agent,
         );
       }
 
