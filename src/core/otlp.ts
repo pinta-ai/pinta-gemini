@@ -43,7 +43,7 @@ function processOwner(): string {
   return cachedProcessOwner;
 }
 
-export const PLUGIN_VERSION = "0.7.0";
+export const PLUGIN_VERSION = "0.8.0";
 
 /**
  * Redaction policy for a given host prefix. Skip keys are identifiers / our own
