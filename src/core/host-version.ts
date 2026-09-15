@@ -17,6 +17,34 @@
  * The host volunteers nothing, so both working sources DERIVE the version from
  * the executable that is actually running.
  *
+ * ── Why a manifest is not enough: the other half of this bundle ─────────────
+ *
+ * This adapter serves Gemini CLI *and* Antigravity (no separate adaptor — see
+ * lifecycle/scanner.ts). Only gemini ships as npm. MEASURED 2026-09-15 against
+ * Antigravity CLI 1.2.3:
+ *
+ *   PATH name      `agy` — and ONLY `agy`. Neither "antigravity" nor
+ *                  "antigravity-cli" exists on PATH, so the names this file
+ *                  originally guessed matched nothing.
+ *   realpath       …/Caskroom/antigravity-cli/1.2.3,<build>/antigravity
+ *   file type      Mach-O 64-bit arm64, 181MB — a native binary
+ *   package.json   ABSENT at all five levels the manifest walk climbs
+ *
+ * So for half of this bundle's installs the manifest route cannot succeed, no
+ * matter which name is matched. The binary has to be asked directly.
+ *
+ * ── Why asking the binary is safe here ─────────────────────────────────────
+ *
+ * `--version` spawns a process, which is a thing to be careful about inside a
+ * hook. Measured before adopting it:
+ *
+ *   cost        62–65ms, and cached for the life of the hook process
+ *   recursion   `agy --version` spawns NO children and produces NO hook
+ *               traffic (watched for child pids; sidecar.log unchanged)
+ *
+ * Recursion is nevertheless guarded, because the failure mode is unbounded
+ * process spawn rather than a wrong answer — see PROBE_ENV.
+ *
  * ── Why host env is never searched ──────────────────────────────────────────
  *
  * Gemini's `sanitizeEnvironment()` hands the hook the parent's whole
@@ -75,9 +103,30 @@ const PAYLOAD_VERSION_KEYS = [
 /** Our own namespace. Never a host-supplied name — see the header. */
 const OVERRIDE_ENV = "PINTA_GEMINI_HOST_VERSION";
 
-/** Executable basenames per host family, most specific first. */
+/**
+ * Set on the `--version` child so that a host which DOES fire hooks on
+ * `--version` cannot make them probe again. Gemini passes the parent
+ * environment through to hooks, so the marker reaches a nested hook and stops
+ * the walk at depth one. Antigravity 1.2.3 was measured not to fire at all;
+ * this exists so a future release that does cannot melt the machine.
+ */
+const PROBE_ENV = "PINTA_GEMINI_VERSION_PROBE";
+
+/** Long enough for a 181MB binary to start, short enough not to stall a hook. */
+const PROBE_TIMEOUT_MS = 2000;
+
+/** `agy version 1.2.3`, `v0.59.0` — a version sitting inside other words. */
+const VERSION_TOKEN_RE = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/;
+
+/**
+ * Executable basenames per host family, most specific first.
+ *
+ * `agy` leads the antigravity list because it is the only name measured on
+ * PATH; the other two are kept for the installers that may use the product
+ * name, and cost nothing when absent.
+ */
 function binaryNames(agent: Agent): string[] {
-  return isGemini(agent) ? ["gemini"] : ["antigravity", "antigravity-cli"];
+  return isGemini(agent) ? ["gemini"] : ["agy", "antigravity", "antigravity-cli"];
 }
 
 /**
@@ -103,6 +152,48 @@ function manifestVersion(startDir: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Read the version off `<binary> --version`.
+ *
+ * Only reached when the manifest walk found nothing, so gemini — which always
+ * has a manifest — never pays for it. The file handed here has already matched
+ * `binaryNames()`, so this is not an arbitrary exec.
+ */
+function versionFromCommand(file: string): string | undefined {
+  if (process.env[PROBE_ENV] === "1") return undefined; // we are already a probe
+
+  let out: string;
+  try {
+    out = execFileSync(file, ["--version"], {
+      encoding: "utf8",
+      timeout: PROBE_TIMEOUT_MS,
+      stdio: ["ignore", "pipe", "ignore"],
+      env: { ...process.env, [PROBE_ENV]: "1" },
+    });
+  } catch {
+    return undefined; // not executable, wrong flag, timed out, non-zero exit
+  }
+
+  const lines = out.split(/\r?\n/, 5).map((l) => l.trim()).filter(Boolean);
+  // A line that is *only* a version is unambiguous. Both hosts answer this way:
+  // `agy --version` → "1.2.3", `gemini --version` → "0.59.0".
+  for (const line of lines) {
+    const exact = versionLike(line);
+    if (exact) return exact;
+  }
+  // Otherwise take the first version-shaped token, for hosts that pad the line.
+  for (const line of lines) {
+    const m = VERSION_TOKEN_RE.exec(line);
+    if (m) return m[1];
+  }
+  return undefined;
+}
+
+/**
+ * Manifest first — it is a file read, and it describes the package rather than
+ * whatever the binary chooses to print. `--version` is the fallback for hosts
+ * that ship no manifest at all (Antigravity; see the header).
+ */
 function versionFromExecutable(file: string): string | undefined {
   let resolved = file;
   try {
@@ -110,7 +201,9 @@ function versionFromExecutable(file: string): string | undefined {
   } catch {
     /* keep the original path — it may still sit next to a manifest */
   }
-  return manifestVersion(path.dirname(resolved));
+  // The probe runs the path we were given, not the realpath: some CLIs branch
+  // on argv[0], and the given path is the one the host itself invokes.
+  return manifestVersion(path.dirname(resolved)) ?? versionFromCommand(file);
 }
 
 /**

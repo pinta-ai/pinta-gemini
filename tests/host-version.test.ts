@@ -1,5 +1,5 @@
 /**
- * service.version — host CLI version resolution (PTA-348).
+ * service.version — host CLI version resolution (PTA-348, PTA-357).
  *
  * The adapter used to ship no `service.version` at all, so every gemini and
  * antigravity span was unattributable to a CLI release. These cases pin the two
@@ -10,6 +10,12 @@
  * whole environment, and a real hook process was measured carrying
  * `COPILOT_CLI_BINARY_VERSION=1.0.83` — another agent's version. Reading it
  * would be silently, confidently wrong.
+ *
+ * The antigravity cases are the second lesson (PTA-357). They used to build an
+ * npm layout — manifest, bundle dir, symlink — for a product that ships as a
+ * single native binary under a name (`agy`) the resolver did not even look for.
+ * The suite was green while the real install resolved nothing, which is the
+ * failure a fixture is supposed to catch. They now model what is on disk.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -21,6 +27,7 @@ const TRACE = "01HQXM7Y9YZJ8MK7Z6P3X1V8R0";
 /** Env names each case may touch; all are saved and restored around the suite. */
 const TOUCHED_ENV = [
   "PINTA_GEMINI_HOST_VERSION",
+  "PINTA_GEMINI_VERSION_PROBE",
   "COPILOT_CLI_BINARY_VERSION",
   "COPILOT_CLI_VERSION",
   "GEMINI_CLI_VERSION",
@@ -58,10 +65,13 @@ const serviceVersion = (opts?: { agent?: string; event?: Record<string, unknown>
  * Lay down an npm-shaped install: a manifest, a bundled entry a level below it,
  * and a symlinked launcher on PATH. Mirrors the real gemini layout measured at
  * `…/@google/gemini-cli/bundle/gemini.js`.
+ *
+ * `probeOutput` makes the entry an executable that answers `--version`, so a
+ * case can prove which of the two sources won.
  */
 function fakeInstall(
   root: string,
-  opts: { bin: string; pkgName: string; version: unknown }
+  opts: { bin: string; pkgName: string; version: unknown; probeOutput?: string }
 ): string {
   const pkgDir = path.join(root, "lib", "node_modules", ...opts.pkgName.split("/"));
   const bundleDir = path.join(pkgDir, "bundle");
@@ -72,12 +82,36 @@ function fakeInstall(
   );
 
   const entry = path.join(bundleDir, `${opts.bin}.js`);
-  fs.writeFileSync(entry, "// stub\n");
+  fs.writeFileSync(
+    entry,
+    opts.probeOutput === undefined ? "// stub\n" : `#!/bin/sh\necho ${JSON.stringify(opts.probeOutput)}\n`
+  );
   fs.chmodSync(entry, 0o755);
 
   const binDir = path.join(root, "bin");
   fs.mkdirSync(binDir, { recursive: true });
   fs.symlinkSync(entry, path.join(binDir, opts.bin));
+  return binDir;
+}
+
+/**
+ * The Antigravity shape: an executable on PATH with NO package.json anywhere
+ * above it. Measured — `agy` resolves to a 181MB Mach-O in Homebrew's Caskroom
+ * and the manifest walk finds nothing at any of its five levels.
+ *
+ * `output` is what the binary prints for `--version`; `exitCode` lets a case
+ * model a binary that rejects the flag.
+ */
+function fakeNativeBinary(
+  root: string,
+  opts: { bin: string; output?: string; exitCode?: number }
+): string {
+  const binDir = path.join(root, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const file = path.join(binDir, opts.bin);
+  const body = opts.output === undefined ? "" : `echo ${JSON.stringify(opts.output)}\n`;
+  fs.writeFileSync(file, `#!/bin/sh\n${body}exit ${opts.exitCode ?? 0}\n`);
+  fs.chmodSync(file, 0o755);
   return binDir;
 }
 
@@ -171,14 +205,61 @@ describe("service.version — host CLI version", () => {
     expect(await serviceVersion({ agent: "antigravity" })).toBeUndefined();
   });
 
+  it("does not hand antigravity's binary to a gemini span", async () => {
+    process.env.PATH = fakeNativeBinary(tmp, { bin: "agy", output: "1.2.3" });
+    expect(await serviceVersion()).toBeUndefined();
+  });
+
   it("resolves antigravity from its own binary", async () => {
-    process.env.PATH = fakeInstall(tmp, {
-      bin: "antigravity",
-      pkgName: "antigravity-cli",
-      version: "1.0.4",
-    });
-    const version = await serviceVersion({ agent: "antigravity" });
-    expect(version).toBe("1.0.4");
+    // The shape actually on disk (PTA-357): the name on PATH is `agy`, and no
+    // package.json exists at any level above it, so only `--version` answers.
+    // The previous version of this case built an npm layout no Antigravity
+    // install has ever had, and passed while the real thing resolved nothing.
+    process.env.PATH = fakeNativeBinary(tmp, { bin: "agy", output: "1.2.3" });
+    expect(await serviceVersion({ agent: "antigravity" })).toBe("1.2.3");
     expect(await resourceAttr("service.name", { agent: "antigravity" })).toBe("antigravity-cli");
+  });
+
+  it("still matches the product name when an installer uses it", async () => {
+    process.env.PATH = fakeNativeBinary(tmp, { bin: "antigravity", output: "2.0.1" });
+    expect(await serviceVersion({ agent: "antigravity" })).toBe("2.0.1");
+  });
+
+  it("prefers the manifest over asking the binary", async () => {
+    // The two disagree on purpose. The manifest describes the package and
+    // costs a file read; the probe costs a process. Order has to be provable.
+    process.env.PATH = fakeInstall(tmp, {
+      bin: "gemini",
+      pkgName: "@google/gemini-cli",
+      version: "0.59.0",
+      probeOutput: "9.9.9",
+    });
+    expect(await serviceVersion()).toBe("0.59.0");
+  });
+
+  it("reads a version the binary pads with other words", async () => {
+    process.env.PATH = fakeNativeBinary(tmp, {
+      bin: "agy",
+      output: "antigravity version 1.2.3 (arm64)",
+    });
+    expect(await serviceVersion({ agent: "antigravity" })).toBe("1.2.3");
+  });
+
+  it("omits rather than guessing when the binary rejects --version", async () => {
+    process.env.PATH = fakeNativeBinary(tmp, { bin: "agy", exitCode: 1 });
+    expect(await serviceVersion({ agent: "antigravity" })).toBeUndefined();
+  });
+
+  it("omits when the binary answers with a channel rather than a release", async () => {
+    process.env.PATH = fakeNativeBinary(tmp, { bin: "agy", output: "nightly" });
+    expect(await serviceVersion({ agent: "antigravity" })).toBeUndefined();
+  });
+
+  it("does not probe when it is itself running as a probe", async () => {
+    // The guarded failure mode is worse than a wrong answer: a host that fired
+    // hooks on `--version` would otherwise spawn processes without bound.
+    process.env.PATH = fakeNativeBinary(tmp, { bin: "agy", output: "1.2.3" });
+    process.env.PINTA_GEMINI_VERSION_PROBE = "1";
+    expect(await serviceVersion({ agent: "antigravity" })).toBeUndefined();
   });
 });
