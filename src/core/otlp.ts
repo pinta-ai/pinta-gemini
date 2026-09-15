@@ -3,7 +3,8 @@
  *
  * span name = "<ingest>.<snake(hook)>"; attributes = ingest.type + <prefix>.*
  * (every top-level event field) + pinta.guard.* when guarded. Resource carries
- * service.name per host family + host/process info. ULID → 32-hex traceId.
+ * service.name per host family, service.version when the host CLI version can
+ * be resolved (see host-version.ts), + host/process info. ULID → 32-hex traceId.
  *
  * The OTLP envelope + the redaction-aware attribute pipeline now live in
  * @pinta-ai/core. This module keeps only the gemini-specific bits: multi-host
@@ -13,6 +14,7 @@
 import os from "os";
 import type { Agent, Canonical, RawEvent } from "./types.js";
 import { identity } from "./types.js";
+import { hostVersion } from "./host-version.js";
 import {
   attrsFromRecord,
   buildPayload,
@@ -69,9 +71,15 @@ function attrPolicy(prefix: string): AttrPolicy {
   };
 }
 
-function resourceAttrs(serviceName: string): OtlpAttribute[] {
+function resourceAttrs(serviceName: string, version?: string): OtlpAttribute[] {
   return [
     { key: "service.name", value: { stringValue: serviceName } },
+    // Omitted when unresolved. The attribute's absence is the honest signal —
+    // see host-version.ts for why `"unknown"` is not written here, and why the
+    // host's own environment is not consulted.
+    ...(version
+      ? [{ key: "service.version", value: { stringValue: version } } as OtlpAttribute]
+      : []),
     { key: "telemetry.sdk.name", value: { stringValue: "pinta-gemini" } },
     { key: "telemetry.sdk.language", value: { stringValue: "nodejs" } },
     { key: "telemetry.sdk.version", value: { stringValue: PLUGIN_VERSION } },
@@ -123,7 +131,7 @@ export function buildOtlpPayload(args: {
     traceId: args.traceId,
     spanName: `${id.ingest}.${snakeCase(args.canonical.hook)}`,
     attributes: attrs,
-    resource: resourceAttrs(id.service),
+    resource: resourceAttrs(id.service, hostVersion(args.agent, args.event)),
     scope: { name: "pinta-gemini", version: PLUGIN_VERSION },
     now: args.now,
     guard: args.guard,
