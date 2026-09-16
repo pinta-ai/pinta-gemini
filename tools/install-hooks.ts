@@ -36,6 +36,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ADAPTER_VERSION } from "../src/core/version.js";
 
 type Agent = "gemini" | "antigravity";
 const KNOWN_AGENTS: Agent[] = ["gemini", "antigravity"];
@@ -72,7 +73,7 @@ function installGemini(home: string, dryRun: boolean, uninstall: boolean): void 
     } else console.log(`nothing to remove (gemini ext): ${dir}`);
     return;
   }
-  const manifest = { name: EXT_NAME, version: "0.10.0", description: "Pinta OTLP forwarder + guard (verification)" };
+  const manifest = { name: EXT_NAME, version: ADAPTER_VERSION, description: "Pinta OTLP forwarder + guard (verification)" };
   const hooks: Record<string, unknown> = {};
   for (const ev of GEMINI_EVENTS) {
     const def: any = { hooks: [{ name: HOOK_NAME, type: "command", command: command("gemini", ev), timeout: 60000 }] };

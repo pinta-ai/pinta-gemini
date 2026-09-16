@@ -37,6 +37,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { ADAPTER_VERSION } from "../src/core/version.js";
 
 // ---------------------------------------------------------------------------
 // CLI args for the harness itself
@@ -285,7 +286,7 @@ async function forward(agent, c, ev, guard) {
     resourceSpans: [
       {
         resource: { attributes: [{ key: "service.name", value: { stringValue: id.service } }] },
-        scopeSpans: [{ scope: { name: "pinta-gemini", version: "0.0.0" }, spans: [{ name: id.ingest + "." + snake(c.hook || "unknown"), attributes: attrs }] }],
+        scopeSpans: [{ scope: { name: "pinta-gemini", version: ADAPTER_VERSION }, spans: [{ name: id.ingest + "." + snake(c.hook || "unknown"), attributes: attrs }] }],
       },
     ],
   };
