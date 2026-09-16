@@ -7,15 +7,18 @@
 import { evaluateGuard as coreEvaluateGuard } from "@pinta-ai/core";
 import type { GuardInput, GuardResult } from "@pinta-ai/core";
 import { identity, type Agent } from "./types.js";
+import { ADAPTER_VERSION } from "./version.js";
 
 export type { GuardInput, GuardResult } from "@pinta-ai/core";
 
 const TIMEOUT_MS = 50;
 
 // Self-identify to the manager's guard route so it can attribute calls to this
-// adaptor (the route parses `pinta-*/<version>` out of the User-Agent). Keep the
-// version in sync with package.json.
-const GUARD_UA = "pinta-gemini/0.10.0";
+// adaptor (the route parses `pinta-*/<version>` out of the User-Agent). Derived
+// from ADAPTER_VERSION rather than written out: the same copy in two sibling
+// adaptors shipped a stale number under a comment telling the reader to keep it
+// in sync.
+const GUARD_UA = `pinta-gemini/${ADAPTER_VERSION}`;
 
 /**
  * The shell command text out of a tool_input, regardless of host field name:

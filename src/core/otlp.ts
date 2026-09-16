@@ -15,6 +15,7 @@ import os from "os";
 import type { Agent, Canonical, RawEvent } from "./types.js";
 import { identity } from "./types.js";
 import { hostVersion } from "./host-version.js";
+import { ADAPTER_VERSION } from "./version.js";
 import {
   attrsFromRecord,
   buildPayload,
@@ -45,7 +46,7 @@ function processOwner(): string {
   return cachedProcessOwner;
 }
 
-export const PLUGIN_VERSION = "0.10.0";
+export const PLUGIN_VERSION = ADAPTER_VERSION;
 
 /**
  * Redaction policy for a given host prefix. Skip keys are identifiers / our own
