@@ -6,6 +6,8 @@ import { Readable } from "node:stream";
 import { runHook } from "../src/hook";
 import { identity } from "../src/core/types";
 import { evaluateGuard } from "../src/core/guard";
+import { buildOtlpPayload } from "../src/core/otlp";
+import { normalize } from "../src/core/normalize";
 
 /**
  * One bundle, two agents — and only this side knows which.
@@ -149,8 +151,34 @@ describe("the guard leg names the agent the User-Agent cannot", () => {
     //
     // The manager's contract is that an adaptor sending no name stays
     // `unknown`. This is the side that keeps that reachable.
-    await evaluateGuard({ spanId: "s" }, "http://guard.local/guard/evaluate", "tok");
+    const c = normalize("gemini", "BeforeTool", { session_id: "s", tool_name: "run_shell_command", tool_input: { command: "ls" } });
+    const payload = buildOtlpPayload({ agent: "gemini", canonical: c, event: { session_id: "s" }, traceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
+    await evaluateGuard(payload, "http://guard.local/guard/evaluate", "tok");
     expect("x-pinta-agent-type" in guardHeaders()).toBe(false);
+  });
+
+  /**
+   * The guard is asked about the span itself, unwrapped. Antigravity used to
+   * need a special case here — the bare command lifted out of `CommandLine`,
+   * because the manager could not read it out of a JSON object — and that is
+   * exactly the kind of per-host copying the span replaces: the command is on
+   * the span under the host's own key, and the manager reads the span.
+   */
+  it("sends the span as the body, with the host's command reachable on it", async () => {
+    for (const agent of ["gemini", "antigravity"] as const) {
+      fetchMock.mockClear();
+      await gate(agent);
+      const sent = JSON.parse(String((guardCall()?.[1] as { body?: string })?.body));
+      expect("input" in sent).toBe(false);
+      const attrs = Object.fromEntries(
+        sent.resourceSpans[0].scopeSpans[0].spans[0].attributes.map((a: { key: string; value: { stringValue?: string } }) => [a.key, a.value.stringValue]),
+      );
+      expect(attrs["ingest.type"]).toBe(identity(agent).ingest);
+      expect(attrs[`${identity(agent).prefix}.cwd`]).toBe("/w");
+      // The same command `gate()` fed the host, under the host's own key.
+      const inputKey = agent === "gemini" ? "gemini.tool_input" : "antigravity.toolCall";
+      expect(attrs[inputKey]).toContain("/etc");
+    }
   });
 
   it("names the agent on the leg that gates, not only on the one that reports", async () => {

@@ -5,24 +5,9 @@ import { parseInvocation, antigravityProduct } from "../src/core/agent";
 import { gateEvent, identity, isSkippedHook } from "../src/core/types";
 import { buildOtlpPayload, ulidToTraceId } from "../src/core/otlp";
 import type { GuardResult } from "../src/core/guard";
-import { shellCommandText } from "../src/core/guard";
+import { attachGuard } from "@pinta-ai/core";
 
 const ULID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"; // 26 Crockford chars
-
-describe("shellCommandText", () => {
-  it("reads Gemini CLI's `command`", () => {
-    expect(shellCommandText({ command: "npm i evil@1.0.0" })).toBe("npm i evil@1.0.0");
-  });
-  it("reads Antigravity's PascalCase `CommandLine`", () => {
-    expect(shellCommandText({ CommandLine: "npm i evil@1.0.0" })).toBe("npm i evil@1.0.0");
-  });
-  it("returns undefined for non-shell shapes (caller keeps JSON fallback)", () => {
-    expect(shellCommandText({ file_path: "/a", content: "x" })).toBeUndefined();
-    expect(shellCommandText(undefined)).toBeUndefined();
-    expect(shellCommandText("already a string")).toBeUndefined();
-    expect(shellCommandText({ command: 123 })).toBeUndefined();
-  });
-});
 
 describe("normalize", () => {
   it("gemini: snake_case → canonical", () => {
@@ -118,10 +103,12 @@ describe("otlp", () => {
     expect(attrs["antigravity.session_id"]).toBe("c1"); // canonical from conversationId
     expect(attrs["antigravity.product"]).toBe("agy");
   });
-  it("guard attrs present when guarded", () => {
+  it("carries no guard attrs itself; the verdict is attached to the same span afterwards", () => {
     const c = normalize("gemini", "BeforeTool", { session_id: "s1" });
     const guard: GuardResult = { decision: "DENY", reason: "rule_x", userMessage: null, durationMs: 5 };
-    const p = buildOtlpPayload({ agent: "gemini", canonical: c, event: { session_id: "s1" }, traceId: ULID, guard });
+    const p = buildOtlpPayload({ agent: "gemini", canonical: c, event: { session_id: "s1" }, traceId: ULID });
+    expect(p.resourceSpans[0].scopeSpans[0].spans[0].attributes.some((a) => a.key.startsWith("pinta.guard."))).toBe(false);
+    attachGuard(p, guard);
     const attrs = Object.fromEntries(p.resourceSpans[0].scopeSpans[0].spans[0].attributes.map((a) => [a.key, (a.value as any).stringValue ?? (a.value as any).intValue]));
     expect(attrs["pinta.guard.decision"]).toBe("deny");
     expect(attrs["pinta.guard.matched_rule"]).toBe("rule_x");

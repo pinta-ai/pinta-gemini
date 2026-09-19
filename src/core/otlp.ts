@@ -22,7 +22,6 @@ import {
   snakeCase,
   toOtlpValue,
   type AttrPolicy,
-  type GuardResult,
   type OtlpAttribute,
   type OtlpPayload,
 } from "@pinta-ai/core";
@@ -97,7 +96,6 @@ export function buildOtlpPayload(args: {
   event: RawEvent;
   traceId: string; // ULID (26)
   now?: number;
-  guard?: GuardResult | null;
   product?: string; // DG11 antigravity sub-label
 }): OtlpPayload {
   const id = identity(args.agent);
@@ -135,6 +133,5 @@ export function buildOtlpPayload(args: {
     resource: resourceAttrs(id.service, hostVersion(args.agent, args.event)),
     scope: { name: "pinta-gemini", version: PLUGIN_VERSION },
     now: args.now,
-    guard: args.guard,
   });
 }
