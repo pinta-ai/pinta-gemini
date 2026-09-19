@@ -15,7 +15,8 @@ import { parseInvocation, antigravityProduct } from "./core/agent.js";
 import { normalize } from "./core/normalize.js";
 import { gateEvent, isGemini, isSkippedHook } from "./core/types.js";
 import type { Agent, Canonical, DecisionOutput, RawEvent } from "./core/types.js";
-import { evaluateGuard, shellCommandText } from "./core/guard.js";
+import { attachGuard } from "@pinta-ai/core";
+import { evaluateGuard } from "./core/guard.js";
 import type { GuardResult } from "./core/guard.js";
 import { Transport } from "./core/transport.js";
 import { TraceManager } from "./core/trace.js";
@@ -56,19 +57,19 @@ export async function runHook(): Promise<void> {
       const trace = new TraceManager(config);
       const traceId = isTurnStart(agent, c, ev) ? trace.newTrace(sessionId) : trace.currentTrace(sessionId);
 
+      // Telemetry span, built BEFORE the guard is asked — because the guard is
+      // asked about this span. Since core 0.8.0 it is the one reading of the
+      // event, judged by the manager through the same AgentEvent assembly the
+      // backend stores it with. Until then the guard got a hand-picked summary
+      // beside the span, and the summary drifted — `cwd` (PTA-176) and the
+      // hook name (PTA-207) were on the span and not in the summary.
+      const product = isGemini(agent) ? undefined : antigravityProduct(ev);
+      const payload = buildOtlpPayload({ agent, canonical: c, event: ev, traceId, product });
+
       // Guard only on the host's tool-gate event.
       if (c.hook === gateEvent(agent)) {
-        const rawToolInput =
-          shellCommandText(c.tool_input) ??
-          (typeof c.tool_input === "string" ? c.tool_input : JSON.stringify(c.tool_input ?? null));
-        // `cwd` and `hook` are already on the canonical event and were being
-        // dropped. `cwd` locates a relative target — `rm -rf passwd` reads as
-        // routine work until you know it was issued from /etc (PTA-176) — and
-        // the event is what lets the manager trust the tool name, since Claude
-        // Code owns those names and neither gemini nor antigravity does
-        // (PTA-207).
         guard = await evaluateGuard(
-          { spanId: sessionId, toolName: c.tool_name, method: c.hook, cwd: c.cwd, toolInput: c.tool_input, rawTextFields: { toolInput: rawToolInput } },
+          payload,
           config.guardEndpoint,
           config.headers['x-pinta-relay-token'],
           agent,
@@ -79,9 +80,10 @@ export async function runHook(): Promise<void> {
       // telemetry failure can never discard an already-obtained DENY.
       out = formatDecision(agent, event, guard);
 
-      const product = isGemini(agent) ? undefined : antigravityProduct(ev);
       // Telemetry send is best-effort; if it throws, the catch preserves `out` below.
-      await transport.send(buildOtlpPayload({ agent, canonical: c, event: ev, traceId, guard, product }));
+      // The verdict rides on the span the guard judged — same spanId.
+      attachGuard(payload, guard);
+      await transport.send(payload);
     }
   } catch (e) {
     process.stderr.write(`[pinta-gemini] error: ${e}\n`);
