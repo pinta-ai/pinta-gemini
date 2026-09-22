@@ -63,8 +63,10 @@ export function gateEvent(agent: Agent): string {
 }
 
 /**
- * AfterModel fires per streamed chunk on Gemini — never capture it even if some
- * config registers it (span explosion). Everything else captured flows through.
+ * AfterModel fires per streamed chunk. The verified host translator includes
+ * response content but no actual model identity, so keep the existing skip
+ * (volume/privacy). Revisit metadata-only observation if the host exposes it;
+ * see README's AfterModel decision. Everything else captured flows through.
  */
 const SKIP_HOOKS = new Set(["AfterModel"]);
 export const isSkippedHook = (hook: string): boolean => SKIP_HOOKS.has(hook);

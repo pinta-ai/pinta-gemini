@@ -164,6 +164,15 @@ guard 평가는 gate 이벤트에서만: gemini=`BeforeTool`, antigravity=`PreTo
 ### 9.3 Bronze flatten
 모든 top-level 이벤트 필드를 `<prefix>.<key>` 속성으로. 문자열은 redact+truncate(§11). prefix = `gemini` | `antigravity`.
 
+`<prefix>.model` is reserved for a non-placeholder scalar model ID. Nested
+Gemini request models are lifted with `model_source=requested:llm_request.model`;
+top-level model fields are reported, not asserted as actual response identity.
+Unsupported/conflicting raw model values move to `model_raw`. No session model
+is inferred from transcript paths, and Antigravity does not reuse Gemini's
+request schema. See [Model telemetry](../README.md#model-telemetry) for evidence,
+precedence and coverage limits. Hook registration and the AfterModel skip are
+unchanged.
+
 ### 9.4 제품 서브라벨 (best-effort, 실측 기반)
 agy 와 Antigravity 2.0 은 `transcriptPath` 로 구분 가능:
 - agy: `.../antigravity-cli/brain/<id>/.../transcript_full.jsonl`
