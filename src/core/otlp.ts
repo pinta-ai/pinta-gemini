@@ -16,6 +16,7 @@ import type { Agent, Canonical, RawEvent } from "./types.js";
 import { identity } from "./types.js";
 import { hostVersion } from "./host-version.js";
 import { ADAPTER_VERSION } from "./version.js";
+import { modelFields } from "./model.js";
 import {
   attrsFromRecord,
   buildPayload,
@@ -108,7 +109,7 @@ export function buildOtlpPayload(args: {
   ];
   if (args.product) attrs.push({ key: `${id.prefix}.product`, value: { stringValue: args.product } });
   // Bronze: flatten every top-level event field under the prefix.
-  attrs.push(...attrsFromRecord(args.event, id.prefix, policy));
+  attrs.push(...attrsFromRecord(modelFields(args.agent, args.canonical.hook, args.event), id.prefix, policy));
   // Canonical cross-host keys — uniform `<prefix>.session_id|cwd|tool_name` so
   // queries work the same for gemini (snake raw) and antigravity (camel raw,
   // e.g. conversationId/workspacePaths). Only added when Bronze didn't already
