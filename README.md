@@ -23,7 +23,7 @@ src/
     agent.ts          --agent/--event 파싱 + antigravity 제품 서브라벨(transcriptPath)
     normalize.ts      호스트 payload → canonical (snake/camel 흡수)
     config.ts         endpoint/headers/guard/data-dir 해석
-    guard.ts          원격 guard 평가 (50ms, fail-open)       ← pinta-cc 재사용
+    guard.ts          원격 guard 평가 (100ms, fail-open)      ← pinta-cc 재사용
     decision.ts       호스트별 allow/deny 출력
     otlp.ts           멀티호스트 Bronze flatten + ingest.type/prefix/service.name
     transport.ts      OTLP/HTTP POST (5s) + 실패 시 retry-queue
@@ -61,7 +61,7 @@ npx tsx tools/hook-verify.ts teardown   # 원복 (hook 제거, jsonl 보존)
 - 이벤트/agent 식별: install 시 command 에 박는 `--agent`/`--event` 인자가 유일 수단(인자보존 실측 확정).
 - 출력: stdout 에 **항상 단일 JSON**, **항상 exit 0**(fail-open).
 - deny: gemini `{decision,reason,systemMessage}` / antigravity `{decision,reason}`. allow: gemini `{}` / antigravity PreToolUse `{decision:"allow"}`.
-- guard: `PINTA_GUARD_ENDPOINT` POST, 50ms, fail-open. 텔레메트리: `GEMINI_PLUGIN_OPTION_*` > `OTEL_EXPORTER_OTLP_*`.
+- guard: `PINTA_GUARD_ENDPOINT` POST, 100ms, fail-open. 텔레메트리: `GEMINI_PLUGIN_OPTION_*` > `OTEL_EXPORTER_OTLP_*`.
 - 설정 주입: 호스트가 hook 에 env 를 안 주므로 `~/.gemini/pinta-gemini.env`(어댑터가 읽음)로 주입.
 
 ## Model telemetry
