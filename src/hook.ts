@@ -13,9 +13,9 @@
 import { loadConfig } from "./core/config.js";
 import { parseInvocation, antigravityProduct } from "./core/agent.js";
 import { normalize } from "./core/normalize.js";
-import { gateEvent, isGemini, isSkippedHook } from "./core/types.js";
+import { isGuardEvent, isGemini, isSkippedHook } from "./core/types.js";
 import type { Agent, Canonical, DecisionOutput, RawEvent } from "./core/types.js";
-import { attachGuard } from "@pinta-ai/core";
+import { attachGuard, DiskRetryQueue } from "@pinta-ai/core";
 import { evaluateGuard } from "./core/guard.js";
 import type { GuardResult } from "./core/guard.js";
 import { Transport } from "./core/transport.js";
@@ -51,7 +51,6 @@ export async function runHook(): Promise<void> {
 
     if (!isSkippedHook(c.hook)) {
       const transport = new Transport(config);
-      await transport.flush();
 
       const sessionId = c.session_id ?? "unknown";
       const trace = new TraceManager(config);
@@ -66,8 +65,7 @@ export async function runHook(): Promise<void> {
       const product = isGemini(agent) ? undefined : antigravityProduct(ev);
       const payload = buildOtlpPayload({ agent, canonical: c, event: ev, traceId, product });
 
-      // Guard only on the host's tool-gate event.
-      if (c.hook === gateEvent(agent)) {
+      if (isGuardEvent(agent, c.hook)) {
         guard = await evaluateGuard(
           payload,
           config.guardEndpoint,
@@ -83,7 +81,17 @@ export async function runHook(): Promise<void> {
       // Telemetry send is best-effort; if it throws, the catch preserves `out` below.
       // The verdict rides on the span the guard judged — same spanId.
       attachGuard(payload, guard);
-      await transport.send(payload);
+      if (guard && isGemini(agent) && c.hook === "AfterTool") {
+        payload.resourceSpans[0].scopeSpans[0].spans[0].attributes.push({
+          key: "pinta.guard.target", value: { stringValue: "tool_output" },
+        });
+      }
+      if (guard?.decision === "DENY") {
+        if (config.endpoint) new DiskRetryQueue(config.pluginData, "pinta-gemini").enqueue(payload);
+      } else {
+        await transport.flush();
+        await transport.send(payload);
+      }
     }
   } catch (e) {
     process.stderr.write(`[pinta-gemini] error: ${e}\n`);
