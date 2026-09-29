@@ -80,7 +80,7 @@
     2. parse argv           --agent, --event
     3. read stdin           raw 이벤트 payload
     4. normalize()          호스트 payload → canonical (snake/camel 흡수)
-    5. guard (gate 이벤트만) PINTA_GUARD_ENDPOINT POST, 50ms, fail-open
+    5. guard (gate 이벤트만) PINTA_GUARD_ENDPOINT POST, 100ms, fail-open
     6. forward()            OTLP span POST (실패 시 retry-queue)
     7. formatDecision()     호스트별 allow/deny JSON
     8. logInvocation()      (DEBUG 시) invocations.jsonl 감사 로그
@@ -144,7 +144,7 @@ guard 평가는 gate 이벤트에서만: gemini=`BeforeTool`, antigravity=`PreTo
 
 - 엔드포인트: `PINTA_GUARD_ENDPOINT` (없으면 guard skip = ALLOW). `PINTA_GUARD_DISABLED=1` 로 비활성.
 - 요청: `POST { "input": { spanId, toolName, toolInput, rawTextFields:{toolInput} } }`, 헤더 `x-pinta-relay-token: $PINTA_RELAY_TOKEN`.
-- 타임아웃 50ms, **fail-open**(timeout/비200/에러 → ALLOW).
+- 타임아웃 100ms, **fail-open**(timeout/비200/에러 → ALLOW). `@pinta-ai/core` 0.9.0+ 는 이 값을 `x-pinta-guard-budget-ms` 헤더로 manager 에 알린다 — manager 는 그 80% 안에 답한다 (PTA-579).
 - 응답: `{ decision:'ALLOW'|'DENY'|'REVIEW', reason, userMessage?, durationMs? }`.
 - MCP/PascalCase 인자도 `rawTextFields.toolInput`(JSON 문자열)에 포함해 정책 매칭 가능하게 한다.
 

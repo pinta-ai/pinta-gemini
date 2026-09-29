@@ -1,8 +1,8 @@
 // gemini-specific binding over the shared guard in @pinta-ai/core. Preserves the
-// historical gemini behavior: 50ms timeout, relay token resolved from the
-// caller (config.headers['x-pinta-relay-token']) with a PINTA_RELAY_TOKEN
-// fallback, PINTA_GUARD_DISABLED honored, and a `pinta-gemini/<version>`
-// User-Agent.
+// historical gemini behavior: a short timeout (100ms, see TIMEOUT_MS), relay
+// token resolved from the caller (config.headers['x-pinta-relay-token']) with a
+// PINTA_RELAY_TOKEN fallback, PINTA_GUARD_DISABLED honored, and a
+// `pinta-gemini/<version>` User-Agent.
 //
 // Since core 0.8.0 the guard is asked about the OTLP payload the hook is about
 // to relay — the same object, built first — rather than a hand-assembled
@@ -18,7 +18,16 @@ import { ADAPTER_VERSION } from "./version.js";
 
 export type { GuardPayload, GuardResult } from "@pinta-ai/core";
 
-const TIMEOUT_MS = 50;
+// How long a gate waits before it fail-opens (ALLOW). Was 50ms, which sat
+// under the manager's own round trip at the tail — calls it would have decided
+// were allowed by the timeout instead (PTA-579). 100ms covers that tail and
+// keeps the hook snappy.
+//
+// This is the only copy of the number that matters: core ≥ 0.9.0 sends it to
+// the manager as `x-pinta-guard-budget-ms`, and the manager spends 80% of it
+// before answering without the package check still in flight. Absent that
+// header the manager guesses from a table of copied adaptor constants.
+const TIMEOUT_MS = 100;
 
 // Self-identify to the manager's guard route so it can attribute calls to this
 // adaptor (the route parses `pinta-*/<version>` out of the User-Agent). Derived
