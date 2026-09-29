@@ -147,8 +147,12 @@ describe("built Gemini/Antigravity hooks → loopback OTLP", () => {
     });
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({ decision: "deny", reason: "test-deny" });
-    expect(received).toHaveLength(1);
+    expect(received).toHaveLength(0);
     expect(guarded).toHaveLength(1);
+    await fire("antigravity", "PreInvocation", {
+      conversationId: "conversation", llm_request: { model: "gemini-only-shape" },
+    });
+    expect(received).toHaveLength(2);
     const actual = attrs(received[0]);
     expect(actual).toMatchObject({
       "antigravity.model": "claude-sonnet-4-5", "antigravity.model_source": "reported:modelId",
@@ -158,9 +162,6 @@ describe("built Gemini/Antigravity hooks → loopback OTLP", () => {
     expect(actual["antigravity.toolCall"]).toContain("[REDACTED:cli_password_short]");
     expect(span(guarded[0]).spanId).toBe(span(received[0]).spanId);
     expect(attrs(guarded[0])["antigravity.model"]).toBe(actual["antigravity.model"]);
-    await fire("antigravity", "PreInvocation", {
-      conversationId: "conversation", llm_request: { model: "gemini-only-shape" },
-    });
     expect(attrs(received[1])["antigravity.model"]).toBeUndefined();
   });
 
