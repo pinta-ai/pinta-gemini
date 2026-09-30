@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.13.1
+
+### Fixed
+- Guard `AfterTool` success and error output before telemetry, returning fixed
+  safe denial feedback instead of the original model-facing content (PTA-585).
+- Complete decided denials without waiting for collector network IO while
+  preserving the original redacted evidence in the bounded retry queue.
+- Bundle `@pinta-ai/core` `^0.9.2` to keep ordinary `find -path` and
+  `find -print` arguments out of mysql-family short-password masking (PTA-515).
+- Preserve mysql password masking in Antigravity's native JSON `CommandLine`
+  field; cover both real password values and unchanged `find` arguments.
+
+### Compatibility
+- Catalog distribution of this output-enforcing release is gated to Manager
+  0.1.14 or later; older Managers keep the preceding compatible adapter.
+- Output protection requires the host's synchronous output hook and a
+  Manager/guard that projects that event as output. Component-level native
+  evidence is not a claim of full authenticated CLI acceptance.
+- Existing guard budgets, REVIEW/disabled/fail-open behavior and guard/export
+  ordering remain unchanged. Output denial does not undo an executed tool.
+
 ## 0.13.0
 
 ### Changed
