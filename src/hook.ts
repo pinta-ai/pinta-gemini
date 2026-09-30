@@ -15,10 +15,10 @@ import { parseInvocation, antigravityProduct } from "./core/agent.js";
 import { normalize } from "./core/normalize.js";
 import { isGuardEvent, isGemini, isSkippedHook } from "./core/types.js";
 import type { Agent, Canonical, DecisionOutput, RawEvent } from "./core/types.js";
-import { attachGuard, DiskRetryQueue } from "@pinta-ai/core";
+import { attachGuard } from "@pinta-ai/core";
 import { evaluateGuard } from "./core/guard.js";
 import type { GuardResult } from "./core/guard.js";
-import { Transport } from "./core/transport.js";
+import { deferPayload, Transport } from "./core/transport.js";
 import { TraceManager } from "./core/trace.js";
 import { buildOtlpPayload } from "./core/otlp.js";
 import { formatDecision } from "./core/decision.js";
@@ -43,6 +43,7 @@ export async function runHook(): Promise<void> {
   let ev: RawEvent = {};
   let c: Canonical | undefined;
   let guard: GuardResult | null = null;
+  let outputWritten = false;
   const config = loadConfig();
 
   try {
@@ -77,6 +78,10 @@ export async function runHook(): Promise<void> {
       // Decide FIRST — the guard verdict must be locked in before telemetry, so a
       // telemetry failure can never discard an already-obtained DENY.
       out = formatDecision(agent, event, guard);
+      if (guard?.decision === "DENY") {
+        process.stdout.write(JSON.stringify(out) + "\n");
+        outputWritten = true;
+      }
 
       // Telemetry send is best-effort; if it throws, the catch preserves `out` below.
       // The verdict rides on the span the guard judged — same spanId.
@@ -87,7 +92,7 @@ export async function runHook(): Promise<void> {
         });
       }
       if (guard?.decision === "DENY") {
-        if (config.endpoint) new DiskRetryQueue(config.pluginData, "pinta-gemini").enqueue(payload);
+        deferPayload(payload, config);
       } else {
         await transport.flush();
         await transport.send(payload);
@@ -112,6 +117,6 @@ export async function runHook(): Promise<void> {
     decision_returned: out,
   });
 
-  process.stdout.write(JSON.stringify(out) + "\n"); // exactly one JSON object
+  if (!outputWritten) process.stdout.write(JSON.stringify(out) + "\n");
   process.exit(0); // always 0
 }

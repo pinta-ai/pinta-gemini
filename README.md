@@ -72,6 +72,8 @@ tool results. A DENY uses `{decision:"deny",reason:"…"}`: Gemini CLI 0.59.0
 replaces the model-facing result with the reason. This does not undo completed
 side effects or promise that the entire turn stops. `additionalContext` alone
 is not enforcement.
+Output-denial feedback is fixed safe text rather than a guard-supplied reason
+or user message. Original guard metadata remains on the audit span.
 
 The original masked span keeps its IDs and gets
 `pinta.guard.target=tool_output`; the manager/runtime must evaluate this native
@@ -83,6 +85,10 @@ A decided DENY is persisted to the existing disk retry queue without waiting
 for collector ACKs or backlog flushing. The host gets one JSON response and
 exit 0 promptly; a later non-denied hook retries telemetry. Queue persistence
 is not proof of ingestion, and telemetry failures cannot revoke a denial.
+The response is written before metadata/persistence work. Deferred payloads
+retain the transport's `MAX_POST_BYTES` UTF-8 JSON limit; oversized payloads are
+diagnosed and dropped without a network fallback. A guard-only configuration
+without a telemetry endpoint retains no queue entries.
 
 ## Model telemetry
 
