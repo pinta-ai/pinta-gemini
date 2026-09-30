@@ -62,6 +62,11 @@ export function gateEvent(agent: Agent): string {
   return profile(agent).gateEvent;
 }
 
+/** Antigravity post-tool control has no verified native contract. */
+export function isGuardEvent(agent: Agent, hook: string): boolean {
+  return hook === gateEvent(agent) || (isGemini(agent) && hook === "AfterTool");
+}
+
 /**
  * AfterModel fires per streamed chunk. The verified host translator includes
  * response content but no actual model identity, so keep the existing skip

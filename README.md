@@ -64,6 +64,32 @@ npx tsx tools/hook-verify.ts teardown   # 원복 (hook 제거, jsonl 보존)
 - guard: `PINTA_GUARD_ENDPOINT` POST, 100ms, fail-open. 텔레메트리: `GEMINI_PLUGIN_OPTION_*` > `OTEL_EXPORTER_OTLP_*`.
 - 설정 주입: 호스트가 hook 에 env 를 안 주므로 `~/.gemini/pinta-gemini.env`(어댑터가 읽음)로 주입.
 
+### Gemini tool-output enforcement
+
+Gemini `AfterTool` is also a guard point. The original
+`tool_response.{llmContent,returnDisplay,error}` is submitted, including failed
+tool results. A DENY uses `{decision:"deny",reason:"…"}`: Gemini CLI 0.59.0
+replaces the model-facing result with the reason. This does not undo completed
+side effects or promise that the entire turn stops. `additionalContext` alone
+is not enforcement.
+Output-denial feedback is fixed safe text rather than a guard-supplied reason
+or user message. Original guard metadata remains on the audit span.
+
+The original masked span keeps its IDs and gets
+`pinta.guard.target=tool_output`; the manager/runtime must evaluate this native
+phase as output, not repeat pre-execution rules. ALLOW/REVIEW retain the result.
+Antigravity post-tool events remain observations: no unverified output protocol
+is emitted. `AfterModel` remains skipped.
+
+A decided DENY is persisted to the existing disk retry queue without waiting
+for collector ACKs or backlog flushing. The host gets one JSON response and
+exit 0 promptly; a later non-denied hook retries telemetry. Queue persistence
+is not proof of ingestion, and telemetry failures cannot revoke a denial.
+The response is written before metadata/persistence work. Deferred payloads
+retain the transport's `MAX_POST_BYTES` UTF-8 JSON limit; oversized payloads are
+diagnosed and dropped without a network fallback. A guard-only configuration
+without a telemetry endpoint retains no queue entries.
+
 ## Model telemetry
 
 `gemini.model` / `antigravity.model` is a **scalar, host-supplied model ID**,
