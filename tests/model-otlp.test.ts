@@ -140,7 +140,7 @@ describe("built Gemini/Antigravity hooks → loopback OTLP", () => {
   }, 30_000);
 
   it("uses Antigravity's own fields, preserves raw payload and denies the same model-bearing span", async () => {
-    const toolCall = { name: "run_command", args: { CommandLine: "DENYME mysql -psecretpw" } };
+    const toolCall = { name: "run_command", args: { CommandLine: "mysql -psecretpw # DENYME" } };
     const result = await fire("antigravity", "PreToolUse", {
       conversationId: "conversation", workspacePaths: [root], toolCall,
       modelId: "claude-sonnet-4-5", llm_request: { model: "not-antigravity-evidence" },
@@ -163,6 +163,20 @@ describe("built Gemini/Antigravity hooks → loopback OTLP", () => {
     expect(span(guarded[0]).spanId).toBe(span(received[0]).spanId);
     expect(attrs(guarded[0])["antigravity.model"]).toBe(actual["antigravity.model"]);
     expect(attrs(received[1])["antigravity.model"]).toBeUndefined();
+  });
+
+  it("preserves ordinary Antigravity find arguments through guard and telemetry", async () => {
+    const toolCall = { name: "run_command", args: { CommandLine: "find . -path '*.ts' -print" } };
+    const result = await fire("antigravity", "PreToolUse", {
+      conversationId: "find-control", workspacePaths: [root], toolCall,
+      modelId: "claude-sonnet-4-5",
+    });
+    expect(result.code).toBe(0);
+    expect(guarded).toHaveLength(1);
+    expect(received).toHaveLength(1);
+    expect(attrs(guarded[0])["antigravity.toolCall"]).toBe(JSON.stringify(toolCall));
+    expect(attrs(received[0])["antigravity.toolCall"]).toBe(JSON.stringify(toolCall));
+    expect(span(guarded[0]).spanId).toBe(span(received[0]).spanId);
   });
 
   it("covers the ESM entry and malformed input without extra/error model spans", async () => {
