@@ -69,6 +69,14 @@ function attrPolicy(prefix: string): AttrPolicy {
       `${prefix}.tool_response`,
       `${prefix}.toolCall`,
     ]),
+    outputForKey: (key, value) => {
+      if (key === `${prefix}.error` || key === `${prefix}.error_message`) return value;
+      if (![`${prefix}.tool_response`, `${prefix}.tool_result`, `${prefix}.toolResult`].includes(key)) return undefined;
+      if (prefix === "gemini" && value && typeof value === "object" && "llmContent" in value && value.llmContent !== undefined) {
+        return "error" in value && value.error ? [value.llmContent, value.error] : value.llmContent;
+      }
+      return value;
+    },
   };
 }
 

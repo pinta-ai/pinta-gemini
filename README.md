@@ -14,6 +14,12 @@ core(otlp/transport/retry-queue/redact/guard/trace)를 공유 패턴으로 재�
 > payload 형상·deny/allow·인자보존 확인. 자세한 건 [`docs/SPEC.md`](./docs/SPEC.md), [`docs/BACKGROUND_RESEARCH.md`](./docs/BACKGROUND_RESEARCH.md) PART F 참조.
 
 ## 저장소 구조
+
+Staging 빌드는 `staging/skax-a` 브랜치와 `skax` npm 태그로만 배포하며,
+Core `0.9.3-skax.0`을 고정한다. 반환 내용의 마스킹 근거는 완료된 입력과
+구분한다. 대응하는 Manager와 격리된 Stage 카탈로그로 검증하며, 이 핀을
+`main`이나 운영 카탈로그로 승격하지 않는다.
+
 ```
 src/
   index.ts            진입점 (loadEnv → parse argv → normalize → guard → forward → decision → exit 0)
