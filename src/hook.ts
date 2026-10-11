@@ -76,8 +76,9 @@ export async function runHook(): Promise<void> {
       }
 
       // Decide FIRST — the guard verdict must be locked in before telemetry, so a
-      // telemetry failure can never discard an already-obtained DENY.
-      out = formatDecision(agent, event, guard);
+      // telemetry failure can never discard an already-obtained DENY. The raw
+      // tool_response is what an AfterTool DENY masks or withholds (PTA-695).
+      out = formatDecision(agent, event, guard, ev["tool_response"]);
       if (guard?.decision === "DENY") {
         process.stdout.write(JSON.stringify(out) + "\n");
         outputWritten = true;
@@ -102,7 +103,7 @@ export async function runHook(): Promise<void> {
     process.stderr.write(`[pinta-gemini] error: ${e}\n`);
     // Preserve an already-obtained guard decision (esp. DENY); only fail-open when no
     // guard verdict was reached. Telemetry failure must never flip a DENY to ALLOW.
-    out = guard ? formatDecision(agent, event, guard) : {};
+    out = guard ? formatDecision(agent, event, guard, ev["tool_response"]) : {};
   }
 
   logInvocation(config, {
