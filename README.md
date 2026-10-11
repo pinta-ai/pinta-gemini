@@ -68,12 +68,34 @@ npx tsx tools/hook-verify.ts teardown   # 원복 (hook 제거, jsonl 보존)
 
 Gemini `AfterTool` is also a guard point. The original
 `tool_response.{llmContent,returnDisplay,error}` is submitted, including failed
-tool results. A DENY uses `{decision:"deny",reason:"…"}`: Gemini CLI 0.59.0
-replaces the model-facing result with the reason. This does not undo completed
-side effects or promise that the entire turn stops. `additionalContext` alone
-is not enforcement.
-Output-denial feedback is fixed safe text rather than a guard-supplied reason
-or user message. Original guard metadata remains on the audit span.
+tool results. A DENY uses `{decision:"deny",reason:"…",systemMessage:"…"}`:
+Gemini CLI 0.59.0 replaces the model-facing result with `reason`, so `reason`
+is everything the model receives instead of the output. This does not undo
+completed side effects or promise that the entire turn stops.
+`additionalContext` alone is not enforcement.
+
+What goes into `reason` depends on what the manager said about the output
+(`@pinta-ai/core` `buildOutputDenial`, PTA-695). The session stays alive in
+both cases:
+
+| manager response | `reason` | `systemMessage` |
+|---|---|---|
+| `outputAction:"mask"` + `redactions` (manager 0.1.16+, every detected value known) | `<notice>` + blank line + mask guidance + blank line + the **original output with each detected value replaced by `[REDACTED:<category>]`** | `<notice>` |
+| `outputAction:"withhold"`, or no `outputAction` (manager < 0.1.16) | `<notice>` + blank line + withhold guidance; the output is not delivered | `<notice>` |
+
+`<notice>` is the policy's own `userMessage` (or a fixed default when the
+policy has none) followed by ` (evaluation <id>)` when the manager sent an
+`evaluationId`, so a false positive can be reported by reference. The guidance
+lines are fixed text telling the model the tool already ran, not to retry it to
+bypass the block, and to ask the user for a masked value instead of trying to
+reveal it. The guard's `reason` (rule id) is never shown to the model. The
+original output is `llmContent` when it is a string, otherwise the JSON of
+`llmContent` (or of the whole `tool_response`); a value inside a JSON string is
+masked in its escaped form too. `mask` without the value actually present in
+the output falls back to `withhold`.
+
+Redaction values travel only in the synchronous guard response: the audit span
+keeps the guard decision metadata and never gets `redactions`.
 
 The original masked span keeps its IDs and gets
 `pinta.guard.target=tool_output`; the manager/runtime must evaluate this native

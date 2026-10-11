@@ -27,7 +27,10 @@ vi.mock("@pinta-ai/core", async (original) => ({
 }));
 import { runHook } from "../src/hook.js";
 import { isGuardEvent } from "../src/core/types.js";
-import { OUTPUT_DENIAL_REASON } from "../src/core/decision.js";
+import { DEFAULT_NOTICE, GUIDANCE_MASK, GUIDANCE_WITHHOLD } from "@pinta-ai/core";
+
+const SENSITIVE = "ctx7sk-FAKE0000";
+const WITHHELD = { decision: "deny", reason: `${DEFAULT_NOTICE}\n\n${GUIDANCE_WITHHOLD()}`, systemMessage: DEFAULT_NOTICE };
 
 let output: string[];
 let response: unknown;
@@ -64,7 +67,7 @@ describe("Gemini output enforcement", () => {
     if (failed) response = { llmContent: "audit error", returnDisplay: "audit error", error: { type: "execution_failed", message: "audit error" } };
     mocks.evaluate.mockResolvedValue(deny);
     await runHook();
-    expect(output.map(line => JSON.parse(line))).toEqual([{ decision: "deny", reason: OUTPUT_DENIAL_REASON }]);
+    expect(output.map(line => JSON.parse(line))).toEqual([WITHHELD]);
     const payload = mocks.evaluate.mock.calls[0][0];
     const attrs = Object.fromEntries(payload.resourceSpans[0].scopeSpans[0].spans[0].attributes.map((a: any) => [a.key, a.value]));
     expect(attrs).toMatchObject({
@@ -100,11 +103,85 @@ describe("Gemini output enforcement", () => {
     expect(output).toHaveLength(1);
   });
 
-  it("never reflects untrusted reason or userMessage in output feedback", async () => {
-    mocks.evaluate.mockResolvedValue({ ...deny, reason: "UNTRUSTED_OUTPUT_MARKER", userMessage: "UNTRUSTED_USER_MESSAGE" });
+  it("withhold (old manager, no outputAction): policy userMessage + withhold guidance, never the rule id or the output", async () => {
+    mocks.evaluate.mockResolvedValue({ ...deny, reason: "RULE_ID_MARKER", userMessage: "Blocked by org policy" });
     await runHook();
-    expect(output.map(line => JSON.parse(line))).toEqual([{ decision: "deny", reason: OUTPUT_DENIAL_REASON }]);
+    expect(output.map(line => JSON.parse(line))).toEqual([{
+      decision: "deny",
+      reason: `Blocked by org policy\n\n${GUIDANCE_WITHHOLD()}`,
+      systemMessage: "Blocked by org policy",
+    }]);
+    expect(output[0]).not.toContain("RULE_ID_MARKER");
+    expect(output[0]).not.toContain("audit result");
     expect(mocks.enqueue).toHaveBeenCalledWith(mocks.evaluate.mock.calls[0][0]);
+  });
+
+  it("withhold (explicit): notice carries the evaluation id", async () => {
+    mocks.evaluate.mockResolvedValue({ ...deny, userMessage: "Prompt injection in output", evaluationId: "ev-7", outputAction: "withhold" });
+    await runHook();
+    const out = output.map(line => JSON.parse(line));
+    expect(out).toEqual([{
+      decision: "deny",
+      reason: `Prompt injection in output (evaluation ev-7)\n\n${GUIDANCE_WITHHOLD("ev-7")}`,
+      systemMessage: "Prompt injection in output (evaluation ev-7)",
+    }]);
+    expect(output[0]).not.toContain("audit result");
+  });
+
+  it("mask: delivers the output with only the detected value masked, stdout before telemetry, nothing leaked onto the span", async () => {
+    response = { llmContent: `token ${SENSITIVE} found`, returnDisplay: "…" };
+    const guard = {
+      ...deny, userMessage: "Credential in tool output", evaluationId: "ev-1",
+      outputAction: "mask", redactions: [{ category: "CREDENTIAL", match: SENSITIVE }],
+    };
+    mocks.evaluate.mockResolvedValue(guard);
+    mocks.enqueue.mockImplementation(() => { expect(output).toHaveLength(1); });
+    await runHook();
+
+    const out = output.map(line => JSON.parse(line));
+    expect(out).toEqual([{
+      decision: "deny",
+      reason: `Credential in tool output (evaluation ev-1)\n\n${GUIDANCE_MASK(1, "ev-1")}\n\ntoken [REDACTED:CREDENTIAL] found`,
+      systemMessage: "Credential in tool output (evaluation ev-1)",
+    }]);
+    expect(out[0]).not.toHaveProperty("continue");
+    expect(output[0]).not.toContain(SENSITIVE);
+    expect(output[0]).toContain("[REDACTED:CREDENTIAL]");
+    expect(output[0]).toContain("evaluation ev-1");
+
+    // Decided DENY: deferred to the queue, never awaiting collector IO.
+    const payload = mocks.evaluate.mock.calls[0][0];
+    expect(mocks.enqueue).toHaveBeenCalledWith(payload);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.flush).not.toHaveBeenCalled();
+
+    // The span carries the verdict and target, but no redaction values beyond
+    // the judged tool_response itself: no `redactions`/`match` attribute, and
+    // no pinta.guard.* attribute quoting the secret.
+    const attrs = payload.resourceSpans[0].scopeSpans[0].spans[0].attributes as Array<{ key: string; value: any }>;
+    const byKey = Object.fromEntries(attrs.map(a => [a.key, a.value]));
+    expect(byKey).toMatchObject({
+      "pinta.guard.decision": { stringValue: "deny" },
+      "pinta.guard.target": { stringValue: "tool_output" },
+    });
+    // `pinta.guard.matched_rule` is the rule id and is fine; the banned keys are the
+    // redaction list, its `match` values and the delivery advice.
+    expect(attrs.some(a => /redaction|\.match$|outputAction|output_action/i.test(a.key))).toBe(false);
+    for (const a of attrs.filter(a => a.key.startsWith("pinta.guard."))) {
+      expect(JSON.stringify(a.value)).not.toContain(SENSITIVE);
+    }
+  });
+
+  it("mask requested but the value is not in the output → withhold", async () => {
+    mocks.evaluate.mockResolvedValue({
+      ...deny, userMessage: "Credential in tool output", evaluationId: "ev-2",
+      outputAction: "mask", redactions: [{ category: "CREDENTIAL", match: SENSITIVE }],
+    });
+    await runHook();
+    const out = JSON.parse(output[0]);
+    expect(out.reason).toBe(`Credential in tool output (evaluation ev-2)\n\n${GUIDANCE_WITHHOLD("ev-2")}`);
+    expect(out.reason).not.toContain("audit result");
+    expect(output).toHaveLength(1);
   });
 
   it("does not retain telemetry in guard-only mode", async () => {

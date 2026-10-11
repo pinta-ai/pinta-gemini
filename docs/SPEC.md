@@ -131,10 +131,18 @@ guard 평가는 gate 이벤트에서만: gemini=`BeforeTool`, antigravity=`PreTo
 
 | 상황 | gemini | antigravity |
 |---|---|---|
-| guard DENY | `{"decision":"deny","reason":<msg>,"systemMessage":<msg>}` | `{"decision":"deny","reason":<msg>}` (systemMessage 없음) |
+| guard DENY (입력 게이트) | `{"decision":"deny","reason":<msg>,"systemMessage":<msg>}` | `{"decision":"deny","reason":<msg>}` (systemMessage 없음) |
+| guard DENY (`AfterTool` = tool **출력**) | `{"decision":"deny","reason":<text>,"systemMessage":<notice>}` | 해당 없음 — antigravity post-tool 은 관측 전용 (검증된 출력 제어 프로토콜 없음) |
 | allow / 비게이트 | `{}` | gate(`PreToolUse`): `{"decision":"allow"}` (필수) · 그 외: `{}` |
 
-- `reason` = guard `userMessage` ?? `reason` ?? `"guard_deny"`.
+- 입력 게이트 `reason` = guard `userMessage` ?? `reason` ?? `"guard_deny"`.
+- `AfterTool` DENY (PTA-695): Gemini CLI 0.59.0 은 model 에게 가는 tool 결과를 `reason` 으로 **대체**하므로 `reason` 이 model 이 출력 대신 받는 전부다. `@pinta-ai/core` `buildOutputDenial({ original, guard })` 로 만든다.
+  - `notice` = `userMessage ?? DEFAULT_NOTICE` + (`evaluationId` 있으면 ` (evaluation <id>)`). `systemMessage` = `notice`.
+  - manager 가 `outputAction:"mask"` + `redactions:[{category,match}]` 를 보냈고 값이 원문에 있으면 → `reason` = `notice` + `\n\n` + mask guidance + `\n\n` + **원문에서 `match` 만 `[REDACTED:<category>]` 로 치환한 출력**.
+  - 그 외(`outputAction:"withhold"`, 필드 없음 = manager < 0.1.16, mask 값이 원문에 없음) → `reason` = `notice` + `\n\n` + withhold guidance. 출력은 전달하지 않는다.
+  - `original` = `tool_response.llmContent` 가 문자열이면 그대로, 아니면 `JSON.stringify(tool_response.llmContent ?? tool_response)`.
+  - guard `reason`(룰 id) 은 model 에 노출하지 않는다. `redactions` 값은 동기 응답에만 존재하며 span·큐·로그에 싣지 않는다 (`attachGuard` 가 무시).
+  - 세션은 끊지 않는다 (`continue:false` 미사용). 완료된 side effect 는 되돌리지 않는다.
 - stdout 은 **항상 단일 JSON**(빈 객체라도). 이유: Gemini 가 stdout 이 비면 stderr 를 systemMessage 로 노출(`stdout.trim() || stderr.trim()`)하므로, 진단 stderr 누출 방지.
 - exit code 로 차단(exit 2)에 **의존 금지** — Antigravity exit semantics 미문서화. 항상 `{decision}` + exit 0.
 

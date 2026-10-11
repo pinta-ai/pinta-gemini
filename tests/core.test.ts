@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { normalize } from "../src/core/normalize";
-import { formatDecision } from "../src/core/decision";
+import { formatDecision, returnedText } from "../src/core/decision";
 import { parseInvocation, antigravityProduct } from "../src/core/agent";
 import { gateEvent, identity, isSkippedHook } from "../src/core/types";
 import { buildOtlpPayload, ulidToTraceId } from "../src/core/otlp";
 import type { GuardResult } from "../src/core/guard";
-import { attachGuard } from "@pinta-ai/core";
+import { attachGuard, DEFAULT_NOTICE, GUIDANCE_MASK, GUIDANCE_WITHHOLD } from "@pinta-ai/core";
 
 const ULID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"; // 26 Crockford chars
 
@@ -46,6 +46,59 @@ describe("formatDecision (host-aware)", () => {
   });
   it("antigravity non-gate allow → {}", () => {
     expect(formatDecision("antigravity", "PostToolUse", null)).toEqual({});
+  });
+
+  describe("gemini AfterTool deny (tool output, PTA-695)", () => {
+    const SENSITIVE = "ctx7sk-FAKE0000";
+    const mask: GuardResult = {
+      ...deny, userMessage: "Credential in tool output", evaluationId: "ev-1",
+      outputAction: "mask", redactions: [{ category: "CREDENTIAL", match: SENSITIVE }],
+    };
+    it("mask: reason = notice + guidance + masked llmContent string; systemMessage = notice", () => {
+      const out = formatDecision("gemini", "AfterTool", mask, { llmContent: `key ${SENSITIVE} here`, returnDisplay: "x" });
+      expect(out).toEqual({
+        decision: "deny",
+        reason: `Credential in tool output (evaluation ev-1)\n\n${GUIDANCE_MASK(1, "ev-1")}\n\nkey [REDACTED:CREDENTIAL] here`,
+        systemMessage: "Credential in tool output (evaluation ev-1)",
+      });
+      expect(out.reason).not.toContain(SENSITIVE);
+    });
+    it("mask: non-string llmContent (parts) is masked as JSON", () => {
+      const out = formatDecision("gemini", "AfterTool", mask, { llmContent: [{ text: `k ${SENSITIVE}` }] });
+      expect(out.reason).toContain(`[{"text":"k [REDACTED:CREDENTIAL]"}]`);
+      expect(out.reason).not.toContain(SENSITIVE);
+    });
+    it("mask: no llmContent → whole tool_response JSON is masked", () => {
+      const out = formatDecision("gemini", "AfterTool", mask, { output: SENSITIVE });
+      expect(out.reason).toContain(`{"output":"[REDACTED:CREDENTIAL]"}`);
+      expect(out.reason).not.toContain(SENSITIVE);
+    });
+    it("mask requested but value absent from output → withhold (no output delivered)", () => {
+      const out = formatDecision("gemini", "AfterTool", mask, { llmContent: "nothing sensitive" });
+      expect(out.reason).toBe(`Credential in tool output (evaluation ev-1)\n\n${GUIDANCE_WITHHOLD("ev-1")}`);
+      expect(out.reason).not.toContain("nothing sensitive");
+    });
+    it("old manager (no outputAction) → withhold with userMessage; never the guard reason", () => {
+      const out = formatDecision("gemini", "AfterTool", { ...deny, reason: "rule-id" }, { llmContent: "the output" });
+      expect(out).toEqual({
+        decision: "deny",
+        reason: `⛔ blocked\n\n${GUIDANCE_WITHHOLD()}`,
+        systemMessage: "⛔ blocked",
+      });
+      expect(out.reason).not.toContain("rule-id");
+      expect(out.reason).not.toContain("the output");
+    });
+    it("no userMessage → DEFAULT_NOTICE", () => {
+      const out = formatDecision("gemini", "AfterTool", { ...deny, userMessage: null }, { llmContent: "o" });
+      expect(out.systemMessage).toBe(DEFAULT_NOTICE);
+      expect(out.reason!.startsWith(`${DEFAULT_NOTICE}\n\n`)).toBe(true);
+    });
+    it("returnedText: string llmContent as is, parts as JSON, missing response as empty", () => {
+      expect(returnedText({ llmContent: "s" })).toBe("s");
+      expect(returnedText({ llmContent: [{ text: "p" }] })).toBe(`[{"text":"p"}]`);
+      expect(returnedText({ a: 1 })).toBe(`{"a":1}`);
+      expect(returnedText(undefined)).toBe("");
+    });
   });
 });
 

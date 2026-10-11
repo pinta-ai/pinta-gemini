@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.14.0
+
+### Changed
+- Gemini `AfterTool` denials now hand the model the policy's own message plus
+  a fixed recovery hint instead of one fixed sentence, and keep the session
+  alive. When the manager says the output can be masked (`outputAction:"mask"`
+  with `redactions`), `reason` carries the original output with only the
+  detected values replaced by `[REDACTED:<category>]`; otherwise the output is
+  withheld. `systemMessage` is the one-line notice, including the manager's
+  `evaluationId` when sent, so a false positive can be reported by reference
+  (PTA-695).
+- The guard's rule id is still never shown to the model; redaction values stay
+  in the synchronous guard response and are not written to the audit span, the
+  retry queue or the invocation log.
+- `@pinta-ai/core` `^0.10.0`: parses `evaluationId`, `outputAction` and
+  `redactions` from the guard response and provides `buildOutputDenial`, which
+  produces the same copy on every adaptor.
+
+### Compatibility
+- Pinta Manager 0.1.16 or later sends `outputAction`/`redactions`. Older
+  managers send neither, and this release withholds the output with the policy
+  `userMessage` as before — no manager upgrade is required to keep enforcing.
+- Antigravity post-tool events remain observation-only; input-gate denials on
+  both hosts are unchanged.
+
 ## 0.13.1
 
 ### Fixed
