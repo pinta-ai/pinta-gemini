@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.2 - 2026-11-27
+
+### Changed
+
+- Stable release of `0.14.2-pta1010.1`. Bundles Core `0.11.1`, which is the same code as
+  Core `0.11.1-pta1010.2`. No behavior change from the Stage candidate.
+
 ## 0.14.2-pta1010.1
 
 - Bundle Core `0.11.1-pta1010.1`: bounded Fetch-mode/CLI-option semantics and
