@@ -69,6 +69,7 @@ function attrPolicy(prefix: string): AttrPolicy {
       `${prefix}.tool_response`,
       `${prefix}.toolCall`,
     ]),
+    outputForKey: (key, value) => key === "gemini.tool_response" ? value : undefined,
   };
 }
 

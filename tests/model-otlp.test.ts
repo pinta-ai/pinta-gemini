@@ -76,6 +76,26 @@ function fire(agent: string, event: string, payload: unknown, entry = 0) {
 }
 
 describe("built Gemini/Antigravity hooks → loopback OTLP", () => {
+  it.each([0, 1])("preserves returned-secret provenance through native entry %i", async (entry) => {
+    const inputKey = `sk-${"FAKE0".repeat(9)}input`;
+    const outputKey = `sk-${"FAKE0".repeat(9)}output`;
+    const result = await fire("gemini", "AfterTool", {
+      session_id: "credential-scope", tool_name: "read_file",
+      tool_input: { note: inputKey }, tool_response: { stdout: outputKey },
+    }, entry);
+    expect(result.code).toBe(0);
+    expect(guarded, result.stderr).toHaveLength(1);
+    expect(received).toHaveLength(1);
+    for (const payload of [guarded[0], received[0]]) {
+      expect(JSON.parse(String(attrs(payload)["pinta.facts"])).items).toMatchObject([
+        { secrets: { count: 1, origins: ["attributes"] } },
+        { secrets: { count: 1, origins: ["toolOutput"] } },
+      ]);
+      expect(JSON.stringify(payload)).not.toContain(inputKey);
+      expect(JSON.stringify(payload)).not.toContain(outputKey);
+    }
+  });
+
   it("emits nested request evidence and preserves the AfterModel skip/count", async () => {
     const request = { model: "gemini-2.5-pro", messages: [] };
     const before = await fire("gemini", "BeforeModel", { session_id: "s", llm_request: request });
