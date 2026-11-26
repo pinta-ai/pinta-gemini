@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.2-pta1010.1
+
+- Bundle Core `0.11.1-pta1010.1`: bounded Fetch-mode/CLI-option semantics and
+  OpenAI-key token boundaries reduce option and long URL false positives.
+  Actual secrets and unknown consumers remain protected; include Acorn's MIT notice.
+- Preserve Gemini returned-secret provenance through both entrypoints without
+  treating completed inputs as returned content. Antigravity's unsupported
+  output gate is not added, and existing guard budgets are unchanged.
+- Stage-only candidate selection requires explicit compatible catalog approval;
+  publishing does not advance production stable selection.
+
 ## 0.14.1
 
 ### Changed
